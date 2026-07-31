@@ -19,10 +19,14 @@ export function MembershipPage() {
 
   useEffect(() => { refresh(); /* eslint-disable-next-line */ }, []);
 
-  const LARGE_PAYMENT_LINK = "https://buy.stripe.com/8x26oId6D9aA02f0iy38400";
+  const PAYMENT_LINKS = {
+    startup: "https://buy.stripe.com/14A00k8Qn72s8yLghw38402",
+    medium: "https://buy.stripe.com/6oUdRa0jR2MceX94yO38401",
+    large: "https://buy.stripe.com/8x26oId6D9aA02f0iy38400",
+  };
 
   const checkout = async (plan) => {
-    if (plan === "large") { window.location.href = LARGE_PAYMENT_LINK; return; }
+    if (PAYMENT_LINKS[plan]) { window.location.href = PAYMENT_LINKS[plan]; return; }
     setLoading(plan);
     try {
       const { data } = await api.post("/payments/checkout", { plan, origin_url: window.location.origin });

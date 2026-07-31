@@ -6,9 +6,9 @@ import ThemeToggle from "../components/ThemeToggle";
 const HERO = "https://images.unsplash.com/photo-1697305592218-d5d0c1bab2e3?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDk1Nzh8MHwxfHNlYXJjaHwxfHxtb2Rlcm4lMjBjb25zdHJ1Y3Rpb24lMjB3b3JrZXIlMjB1c2luZyUyMHRhYmxldHxlbnwwfHx8fDE3ODU0Mzg4ODJ8MA&ixlib=rb-4.1.0&q=85";
 
 const PLANS = [
-  { key: "startup", name: "Startup", price: 60, feats: ["Up to 20 employees", "3 vehicles", "10 active jobs", "30 equipment pieces", "5 hrs data-entry help"] },
-  { key: "medium", name: "Medium", price: 89, popular: true, feats: ["Up to 50 employees", "10 vehicles", "30 active jobs", "60 equipment pieces", "10 hrs data-entry help"] },
-  { key: "large", name: "Large", price: 149, feats: ["Up to 100 employees", "20 vehicles", "50 active jobs", "120 equipment pieces", "20 hrs data-entry help"] },
+  { key: "startup", name: "Startup", price: 60, link: "https://buy.stripe.com/14A00k8Qn72s8yLghw38402", feats: ["Up to 20 employees", "3 vehicles", "10 active jobs", "30 equipment pieces", "5 hrs data-entry help"] },
+  { key: "medium", name: "Medium", price: 89, popular: true, link: "https://buy.stripe.com/6oUdRa0jR2MceX94yO38401", feats: ["Up to 50 employees", "10 vehicles", "30 active jobs", "60 equipment pieces", "10 hrs data-entry help"] },
+  { key: "large", name: "Large", price: 149, link: "https://buy.stripe.com/8x26oId6D9aA02f0iy38400", feats: ["Up to 100 employees", "20 vehicles", "50 active jobs", "120 equipment pieces", "20 hrs data-entry help"] },
 ];
 
 const FEATURES = [
@@ -105,15 +105,9 @@ export default function Landing() {
                     <li key={f} className="flex items-start gap-2 text-sm"><Check className="w-4 h-4 text-primary mt-0.5 shrink-0" />{f}</li>
                   ))}
                 </ul>
-                {p.key === "large" ? (
-                  <a href="https://buy.stripe.com/8x26oId6D9aA02f0iy38400" data-testid={`plan-${p.key}-cta`} className={`block text-center py-3 rounded-md font-semibold transition-opacity hover:opacity-90 ${p.popular ? "bg-primary text-primary-foreground" : "border border-border"}`}>
-                    Get {p.name}
-                  </a>
-                ) : (
-                  <Link to="/register" data-testid={`plan-${p.key}-cta`} className={`block text-center py-3 rounded-md font-semibold transition-opacity hover:opacity-90 ${p.popular ? "bg-primary text-primary-foreground" : "border border-border"}`}>
-                    Get {p.name}
-                  </Link>
-                )}
+                <a href={p.link} data-testid={`plan-${p.key}-cta`} className={`block text-center py-3 rounded-md font-semibold transition-opacity hover:opacity-90 ${p.popular ? "bg-primary text-primary-foreground" : "border border-border"}`}>
+                  Get {p.name}
+                </a>
               </div>
             ))}
           </div>
