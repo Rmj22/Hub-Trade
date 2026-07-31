@@ -500,7 +500,7 @@ async def dashboard(user: dict = Depends(get_current_user)):
 async def weekly_report(user: dict = Depends(get_current_user)):
     cid = user["company_id"]
     week_ago = datetime.now(timezone.utc) - timedelta(days=7)
-    tcs = await db.timecards.find({"company_id": cid}).to_list(2000)
+    tcs = await db.timecards.find({"company_id": cid, "created_at": {"$gte": week_ago.isoformat()}}).to_list(2000)
     labor_hours = 0.0
     for t in tcs:
         if t.get("clock_out") and t.get("created_at"):
@@ -653,7 +653,7 @@ app.include_router(api)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[FRONTEND_URL, "http://localhost:3000"],
+    allow_origins=[FRONTEND_URL],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -663,6 +663,11 @@ app.add_middleware(
 @app.on_event("startup")
 async def startup():
     await db.users.create_index("email", unique=True)
+    await db.messages.create_index([("company_id", 1), ("job_id", 1), ("_id", -1)])
+    await db.timecards.create_index([("company_id", 1), ("created_at", -1)])
+    await db.timecards.create_index([("company_id", 1), ("clock_out", 1)])
+    for c in ("jobs", "employees", "vehicles", "equipment", "estimates"):
+        await db[c].create_index("company_id")
     try:
         init_storage()
     except Exception as e:
