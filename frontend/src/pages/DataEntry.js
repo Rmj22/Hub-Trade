@@ -11,8 +11,12 @@ const empty = { title: "", category: "General", priority: "normal", description:
 export default function DataEntryPage() {
   const [items, setItems] = useState([]);
   const [modal, setModal] = useState(null);
+  const [hours, setHours] = useState(null);
 
-  const load = () => api.get("/data-entry-tickets").then((r) => setItems(r.data)).catch((e) => toast.error(errMsg(e)));
+  const load = () => {
+    api.get("/data-entry-tickets").then((r) => setItems(r.data)).catch((e) => toast.error(errMsg(e)));
+    api.get("/dashboard").then((r) => setHours({ total: r.data.data_hours_total, used: r.data.data_hours_used, remaining: r.data.data_hours_remaining })).catch(() => {});
+  };
   useEffect(() => { load(); }, []);
 
   const save = async () => {
@@ -37,6 +41,19 @@ export default function DataEntryPage() {
           <Plus className="w-4 h-4" /> New ticket
         </button>
       </div>
+
+      {hours && hours.total > 0 && (
+        <div className="border border-border rounded-md bg-card p-5 mb-8" data-testid="data-entry-hours-meter">
+          <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
+            <div className="flex items-center gap-2"><Clock className="w-4 h-4 text-primary" /><span className="font-semibold text-sm">Data-entry hours remaining</span></div>
+            <span className="font-head font-extrabold text-lg" data-testid="data-entry-hours-remaining">{hours.remaining} / {hours.total} hrs</span>
+          </div>
+          <div className="h-2 rounded-full bg-muted overflow-hidden">
+            <div className="h-full bg-primary transition-all" style={{ width: `${hours.total ? Math.min(100, (hours.remaining / hours.total) * 100) : 0}%` }} />
+          </div>
+          <div className="text-xs text-muted-foreground mt-2">{hours.used} hrs requested so far this membership term</div>
+        </div>
+      )}
 
       {items.length === 0 ? (
         <div className="border border-dashed border-border rounded-md p-12 text-center text-muted-foreground" data-testid="tickets-empty">

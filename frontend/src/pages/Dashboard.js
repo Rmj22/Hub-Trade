@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { api, errMsg } from "../lib/api";
 import { useAuth } from "../context/AuthContext";
 import { motion } from "framer-motion";
-import { Briefcase, Clock, Truck, Wrench, AlertTriangle, FileText, Users, CheckCircle } from "lucide-react";
+import { Briefcase, Clock, Truck, Wrench, AlertTriangle, FileText, Users, CheckCircle, LifeBuoy } from "lucide-react";
 import { Link } from "react-router-dom";
 
 function Stat({ icon: Icon, label, value, accent, testid }) {
@@ -53,6 +53,38 @@ export default function Dashboard() {
               <Stat testid="stat-completed" icon={CheckCircle} label="Completed jobs" value={d.completed_jobs} />
             </>}
           </div>
+
+          {user?.role !== "employee" && (d.data_hours_total > 0 || (d.recent_ticket_updates && d.recent_ticket_updates.length > 0)) && (
+            <div className="grid lg:grid-cols-3 gap-6 mb-8">
+              <div className="border border-border rounded-md bg-card p-6" data-testid="dashboard-hours-meter">
+                <div className="flex items-center gap-2 mb-4"><LifeBuoy className="w-5 h-5 text-primary" /><h2 className="font-head font-bold text-lg">Data-entry hours</h2></div>
+                <div className="font-head font-extrabold text-4xl tracking-tight" data-testid="dashboard-hours-remaining">{d.data_hours_remaining}<span className="text-lg text-muted-foreground font-body font-normal"> / {d.data_hours_total} hrs left</span></div>
+                <div className="mt-4 h-2 rounded-full bg-muted overflow-hidden">
+                  <div className="h-full bg-primary transition-all" style={{ width: `${d.data_hours_total ? Math.min(100, (d.data_hours_remaining / d.data_hours_total) * 100) : 0}%` }} />
+                </div>
+                <div className="text-xs text-muted-foreground mt-2">{d.data_hours_used} hrs requested this membership term</div>
+                <Link to="/app/data-entry" className="inline-block mt-4 text-sm text-primary font-semibold" data-testid="dashboard-request-help">Request more help →</Link>
+              </div>
+              <div className="lg:col-span-2 border border-border rounded-md bg-card p-6" data-testid="dashboard-ticket-updates">
+                <h2 className="font-head font-bold text-lg mb-4">Data-entry updates</h2>
+                {(!d.recent_ticket_updates || d.recent_ticket_updates.length === 0) ? (
+                  <div className="text-muted-foreground text-sm py-8 text-center">No updates yet. Submit a ticket and our team will get to work.</div>
+                ) : (
+                  <div className="space-y-2">
+                    {d.recent_ticket_updates.map((t) => (
+                      <div key={t.id} className="flex items-center justify-between p-3 rounded-md border border-border" data-testid="dashboard-ticket-update-row">
+                        <div>
+                          <div className="font-semibold text-sm">{t.title}</div>
+                          {t.admin_notes && <div className="text-xs text-muted-foreground">{t.admin_notes}</div>}
+                        </div>
+                        <span className={`text-xs px-2 py-0.5 rounded-full font-medium whitespace-nowrap ${t.status === "done" ? "bg-green-500/15 text-green-500" : t.status === "in_progress" ? "bg-amber-500/15 text-amber-500" : "bg-primary/20 text-primary"}`}>{(t.status || "open").replace("_", " ")}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
 
           <div className="grid lg:grid-cols-3 gap-6">
             <div className="lg:col-span-2 border border-border rounded-md bg-card p-6">

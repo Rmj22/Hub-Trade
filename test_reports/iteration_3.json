@@ -1,0 +1,43 @@
+{
+  "summary": "Tested new features: in-app notifications, data-entry hours meter, dashboard 'recent ticket updates' panel. Backend: 9 new pytest tests in /app/backend/tests/test_notifications_hours.py all pass (dashboard field presence, hours math + clamping, admin ticket update creates a notification, no-op update does NOT create a notification, mark single/read-all, company-scoped isolation). Frontend Playwright end-to-end: logged in as Robin, hours meter shows on both Dashboard and Data-Entry page (0/10), created a new ticket (appeared as ticket-card), opened it in /admin-control-241, set status Done + admin note, saved. Back on dashboard: unread badge shows count '2' (2 unread including our new one), dashboard-ticket-updates panel shows the ticket with the note and 'done' status badge as the top row, notification-panel opens with items including the correct message, 'Mark all read' clears the badge. All acceptance criteria met.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/notifications/{nid}/read", "issue": "Passing a non-ObjectId string (e.g. 'xxx') raises bson.InvalidId -> 500 instead of 400/404. Prior iteration flagged the same on /api/admin/data-entry-tickets/{id}; the admin route now returns 404 correctly, but notification read/read-all should also guard invalid ids."},
+      {"endpoint": "GET /api/dashboard", "issue": "recent_ticket_updates is sorted by updated_at, but every new ticket already gets updated_at on create. So the panel can display tickets that have NEVER been touched by admin (no status change, no admin_notes). Consider filtering to tickets where admin_notes exists OR status != 'open' so 'Data-entry updates' truly reflects admin activity."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Dashboard (Data-entry hours card)", "issues": ["The static caption '1015 hrs requested this membership term' beneath the meter appears hardcoded (does not match data_hours_used which is 1015 here only because a test bumped it). It reads oddly when used >> total. Consider a friendlier phrase such as 'X hrs requested (over your Y-hr plan)'."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_notifications_hours.py",
+    "/app/test_reports/pytest/notifications_hours.xml"
+  ],
+  "action_items": [
+    "(Minor) Add ObjectId validation / try-except to POST /api/notifications/{nid}/read (return 400 on bad id).",
+    "(Minor) Filter recent_ticket_updates to only tickets that have been touched by admin (e.g. admin_notes present or status != 'open').",
+    "(Cosmetic) Fix the 'X hrs requested this membership term' subtitle wording when used > total."
+  ],
+  "critical_code_review_comments": [
+    "create_notification helper and admin_update_ticket integration are clean; message is generated only when status changed or admin_notes actually changed (delta check present) - good.",
+    "Notification list uses sort by _id desc which is essentially insertion order via ObjectId time bits - acceptable proxy for created_at.",
+    "GET /api/notifications limits to 50 and is company_id-scoped; POST read-all is also company-scoped - verified by cross-company test.",
+    "Hours math and clamp are correct: remaining = max(total - used, 0), rounded to 1 decimal.",
+    "NotificationBell polls every 15s which is fine but could be replaced with SSE/WebSocket later; not blocking."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_notifications_hours.py (new)",
+    "/app/test_reports/pytest/notifications_hours.xml (new junit)"
+  ],
+  "success_rate": {"backend": "100% (9/9 new + 16/16 existing)", "frontend": "100% (all acceptance flows verified)"},
+  "test_credentials": "Owner/super-admin: robinjones335@gmail.com / BuildIt2026! (verified is_superadmin=true and role=owner).",
+  "seed_data_creation": "Backend tests created TEST_* tickets in Jones Construction and a TEST_ second company. UI test created one 'UI TEST Ticket <ts>' ticket. Nothing destructive; no seeded data touched.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "All new-feature endpoints and UI (notifications, hours meter, dashboard updates) are green. Prior iteration_2 minor gaps (seed_admin role restoration, 404 on invalid ticket id) - the 404 on admin ticket route is now fixed; the seed role gap was not re-verified this run but Robin currently has role=owner + is_superadmin=true so tests pass. Note the hours-used counter is now large in Robin's company due to test seed tickets (>1000 hrs); this is expected and the meter correctly clamps remaining to 0."
+}

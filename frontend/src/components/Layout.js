@@ -2,6 +2,7 @@ import { useState } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import ThemeToggle from "./ThemeToggle";
+import NotificationBell from "./NotificationBell";
 import {
   LayoutDashboard, Briefcase, Users, Truck, Wrench, FileText,
   Clock, MessageSquare, BarChart3, CreditCard, LogOut, Menu, HardHat, X, LifeBuoy, ShieldCheck,
@@ -94,6 +95,7 @@ export default function Layout({ children }) {
             </div>
           </div>
           <div className="flex items-center gap-3">
+            <NotificationBell />
             <ThemeToggle />
             <div className="w-9 h-9 rounded-md bg-primary text-primary-foreground flex items-center justify-center font-bold text-sm" data-testid="user-avatar">
               {user?.name?.[0]?.toUpperCase()}

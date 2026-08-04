@@ -106,6 +106,13 @@ def clean(doc):
     return doc
 
 
+async def create_notification(company_id: str, message: str, ticket_id: str = None):
+    await db.notifications.insert_one({
+        "company_id": company_id, "message": message, "ticket_id": ticket_id,
+        "type": "data_entry", "read": False, "created_at": now_iso(),
+    })
+
+
 app = FastAPI()
 api = APIRouter(prefix="/api")
 
@@ -486,6 +493,13 @@ async def dashboard(user: dict = Depends(get_current_user)):
     equipment = await db.equipment.find({"company_id": cid}).to_list(1000)
     estimates = await db.estimates.find({"company_id": cid}).to_list(1000)
     employees = await db.employees.find({"company_id": cid}).to_list(1000)
+    tickets = await db.data_entry_tickets.find({"company_id": cid}).to_list(1000)
+    comp = await db.companies.find_one({"_id": ObjectId(cid)})
+    plan = PLAN_LIMITS.get((comp or {}).get("plan") or "", {})
+    data_hours = plan.get("data_hours", 0)
+    used = sum(t.get("hours_requested", 0) for t in tickets)
+    recent_updates = sorted([t for t in tickets if t.get("updated_at")], key=lambda t: t["updated_at"], reverse=True)[:5]
+    unread = await db.notifications.count_documents({"company_id": cid, "read": False})
     return {
         "active_jobs": len(active_jobs),
         "jobs_behind": len(behind_jobs),
@@ -499,6 +513,11 @@ async def dashboard(user: dict = Depends(get_current_user)):
         "total_employees": len(employees),
         "upcoming_estimates": len([e for e in estimates if e.get("status") == "draft"]),
         "active_jobs_list": [clean(j) for j in active_jobs[:6]],
+        "data_hours_total": data_hours,
+        "data_hours_used": round(used, 1),
+        "data_hours_remaining": round(max(data_hours - used, 0), 1),
+        "unread_notifications": unread,
+        "recent_ticket_updates": [clean(t) for t in recent_updates],
     }
 
 
@@ -656,8 +675,35 @@ async def admin_update_ticket(ticket_id: str, req: AdminTicketUpdate, user: dict
     upd = {k: v for k, v in req.model_dump().items() if v is not None}
     upd["updated_at"] = now_iso()
     await db.data_entry_tickets.update_one({"_id": ObjectId(ticket_id)}, {"$set": upd})
+    parts = []
+    if upd.get("status") and upd["status"] != existing.get("status"):
+        parts.append(f"marked {upd['status'].replace('_', ' ')}")
+    if upd.get("admin_notes") and upd["admin_notes"] != existing.get("admin_notes", ""):
+        parts.append("a note was added by the data-entry team")
+    if parts:
+        await create_notification(existing["company_id"],
+            f'Ticket "{existing.get("title")}" was ' + " and ".join(parts) + ".",
+            str(existing["_id"]))
     item = await db.data_entry_tickets.find_one({"_id": ObjectId(ticket_id)})
     return clean(item)
+
+
+@api.get("/notifications")
+async def list_notifications(user: dict = Depends(get_current_user)):
+    items = await db.notifications.find({"company_id": user["company_id"]}).sort("_id", -1).limit(50).to_list(50)
+    return [clean(i) for i in items]
+
+
+@api.post("/notifications/{nid}/read")
+async def read_notification(nid: str, user: dict = Depends(get_current_user)):
+    await db.notifications.update_one({"_id": ObjectId(nid), "company_id": user["company_id"]}, {"$set": {"read": True}})
+    return {"status": "ok"}
+
+
+@api.post("/notifications/read-all")
+async def read_all_notifications(user: dict = Depends(get_current_user)):
+    await db.notifications.update_many({"company_id": user["company_id"], "read": False}, {"$set": {"read": True}})
+    return {"status": "ok"}
 
 
 @api.get("/admin/stats")
