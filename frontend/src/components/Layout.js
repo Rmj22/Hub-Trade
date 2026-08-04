@@ -4,7 +4,7 @@ import { useAuth } from "../context/AuthContext";
 import ThemeToggle from "./ThemeToggle";
 import {
   LayoutDashboard, Briefcase, Users, Truck, Wrench, FileText,
-  Clock, MessageSquare, BarChart3, CreditCard, LogOut, Menu, HardHat, X,
+  Clock, MessageSquare, BarChart3, CreditCard, LogOut, Menu, HardHat, X, LifeBuoy, ShieldCheck,
 } from "lucide-react";
 
 const NAV = [
@@ -15,6 +15,7 @@ const NAV = [
   { to: "/app/equipment", label: "Equipment", icon: Wrench, roles: ["owner", "foreman"] },
   { to: "/app/estimates", label: "Estimates", icon: FileText, roles: ["owner", "foreman"] },
   { to: "/app/timecards", label: "Time Cards", icon: Clock, roles: ["owner", "foreman", "employee"] },
+  { to: "/app/data-entry", label: "Data-Entry Help", icon: LifeBuoy, roles: ["owner", "foreman", "employee"] },
   { to: "/app/messages", label: "Team Chat", icon: MessageSquare, roles: ["owner", "foreman", "employee"] },
   { to: "/app/reports", label: "Reports", icon: BarChart3, roles: ["owner"] },
   { to: "/app/membership", label: "Membership", icon: CreditCard, roles: ["owner"] },
@@ -52,6 +53,12 @@ export default function Layout({ children }) {
         ))}
       </nav>
       <div className="p-3 border-t border-border">
+        {user?.is_superadmin && (
+          <NavLink to="/admin-control-241" onClick={() => setOpen(false)} data-testid="nav-admin-control"
+            className="flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium text-primary hover:bg-muted w-full transition-colors mb-1">
+            <ShieldCheck className="w-4 h-4" /> Admin Control
+          </NavLink>
+        )}
         <button
           data-testid="logout-btn"
           onClick={async () => { await logout(); nav("/login"); }}

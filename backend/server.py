@@ -138,6 +138,12 @@ def require_role(*roles):
     return dep
 
 
+async def require_superadmin(user: dict = Depends(get_current_user)):
+    if not user.get("is_superadmin"):
+        raise HTTPException(status_code=403, detail="Admin access only")
+    return user
+
+
 def set_cookies(response: Response, token: str):
     response.set_cookie("access_token", token, httponly=True, secure=True, samesite="none", max_age=604800, path="/")
 
@@ -561,7 +567,7 @@ async def list_team(user: dict = Depends(get_current_user)):
 
 @api.post("/team")
 async def add_team(req: TeamMemberReq, user: dict = Depends(require_role("owner"))):
-    if req.role not in ("foreman", "employee"):
+    if req.role not in ("owner", "foreman", "employee"):
         raise HTTPException(400, "Invalid role")
     email = req.email.lower()
     if await db.users.find_one({"email": email}):
@@ -571,6 +577,91 @@ async def add_team(req: TeamMemberReq, user: dict = Depends(require_role("owner"
     res = await db.users.insert_one(doc)
     doc["_id"] = res.inserted_id
     return clean(doc)
+
+
+class RoleUpdateReq(BaseModel):
+    role: str
+
+
+@api.put("/team/{user_id}/role")
+async def update_role(user_id: str, req: RoleUpdateReq, user: dict = Depends(require_role("owner"))):
+    if req.role not in ("owner", "foreman", "employee"):
+        raise HTTPException(400, "Invalid role")
+    target = await db.users.find_one({"_id": ObjectId(user_id), "company_id": user["company_id"]})
+    if not target:
+        raise HTTPException(404, "Member not found")
+    if str(target["_id"]) == str(user["_id"]) and req.role != "owner":
+        owners = await db.users.count_documents({"company_id": user["company_id"], "role": "owner"})
+        if owners <= 1:
+            raise HTTPException(400, "Cannot demote the only owner")
+    await db.users.update_one({"_id": ObjectId(user_id)}, {"$set": {"role": req.role}})
+    target["role"] = req.role
+    return clean(target)
+
+
+@api.delete("/team/{user_id}")
+async def remove_team(user_id: str, user: dict = Depends(require_role("owner"))):
+    if str(user_id) == str(user["_id"]):
+        raise HTTPException(400, "You cannot remove yourself")
+    await db.users.delete_one({"_id": ObjectId(user_id), "company_id": user["company_id"]})
+    return {"status": "deleted"}
+
+
+# ---------- Data-entry assistance tickets ----------
+class DataEntryTicketReq(BaseModel):
+    title: str
+    category: str = "General"
+    priority: str = "normal"  # low, normal, high
+    description: str = ""
+    hours_requested: float = 0
+
+
+@api.get("/data-entry-tickets")
+async def list_tickets(user: dict = Depends(get_current_user)):
+    items = await db.data_entry_tickets.find({"company_id": user["company_id"]}).sort("_id", -1).to_list(1000)
+    return [clean(i) for i in items]
+
+
+@api.post("/data-entry-tickets")
+async def create_ticket(req: DataEntryTicketReq, user: dict = Depends(get_current_user)):
+    comp = await db.companies.find_one({"_id": ObjectId(user["company_id"])})
+    doc = {**req.model_dump(), "company_id": user["company_id"],
+           "company_name": comp.get("name") if comp else "",
+           "created_by": user["name"], "created_by_id": str(user["_id"]),
+           "status": "open", "admin_notes": "", "created_at": now_iso()}
+    res = await db.data_entry_tickets.insert_one(doc)
+    doc["_id"] = res.inserted_id
+    return clean(doc)
+
+
+# ---------- Admin control (super-admin only) ----------
+@api.get("/admin/data-entry-tickets")
+async def admin_list_tickets(user: dict = Depends(require_superadmin)):
+    items = await db.data_entry_tickets.find({}).sort("_id", -1).to_list(2000)
+    return [clean(i) for i in items]
+
+
+class AdminTicketUpdate(BaseModel):
+    status: Optional[str] = None
+    admin_notes: Optional[str] = None
+
+
+@api.put("/admin/data-entry-tickets/{ticket_id}")
+async def admin_update_ticket(ticket_id: str, req: AdminTicketUpdate, user: dict = Depends(require_superadmin)):
+    upd = {k: v for k, v in req.model_dump().items() if v is not None}
+    upd["updated_at"] = now_iso()
+    await db.data_entry_tickets.update_one({"_id": ObjectId(ticket_id)}, {"$set": upd})
+    item = await db.data_entry_tickets.find_one({"_id": ObjectId(ticket_id)})
+    return clean(item)
+
+
+@api.get("/admin/stats")
+async def admin_stats(user: dict = Depends(require_superadmin)):
+    companies = await db.companies.count_documents({})
+    users = await db.users.count_documents({})
+    tickets = await db.data_entry_tickets.count_documents({})
+    open_tickets = await db.data_entry_tickets.count_documents({"status": "open"})
+    return {"companies": companies, "users": users, "tickets": tickets, "open_tickets": open_tickets}
 
 
 # ---------- Payments ----------
@@ -678,9 +769,15 @@ async def startup():
     if existing is None:
         comp = await db.companies.insert_one({"name": "Jones Construction Co.", "plan": "medium", "membership_status": "active", "trade": "General", "created_at": now_iso()})
         await db.users.insert_one({"email": admin_email, "password_hash": hash_password(admin_password),
-                                   "name": "Robin Jones", "role": "owner", "company_id": str(comp.inserted_id), "created_at": now_iso()})
-    elif not verify_password(admin_password, existing["password_hash"]):
-        await db.users.update_one({"email": admin_email}, {"$set": {"password_hash": hash_password(admin_password)}})
+                                   "name": "Robin Jones", "role": "owner", "is_superadmin": True, "company_id": str(comp.inserted_id), "created_at": now_iso()})
+    else:
+        upd = {}
+        if not verify_password(admin_password, existing["password_hash"]):
+            upd["password_hash"] = hash_password(admin_password)
+        if not existing.get("is_superadmin"):
+            upd["is_superadmin"] = True
+        if upd:
+            await db.users.update_one({"email": admin_email}, {"$set": upd})
 
 
 @app.on_event("shutdown")

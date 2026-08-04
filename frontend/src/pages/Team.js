@@ -1,17 +1,30 @@
 import { useEffect, useState } from "react";
 import { api, errMsg } from "../lib/api";
 import { toast } from "sonner";
-import { Plus, X, UserPlus } from "lucide-react";
+import { Plus, X, UserPlus, Trash2 } from "lucide-react";
 import CrudManager from "../components/CrudManager";
+import { useAuth } from "../context/AuthContext";
 
 const roleBadge = { owner: "bg-primary/20 text-primary", foreman: "bg-blue-500/15 text-blue-500", employee: "bg-muted text-muted-foreground" };
 
 export default function TeamPage() {
+  const { user } = useAuth();
   const [members, setMembers] = useState([]);
   const [modal, setModal] = useState(null);
 
   const load = () => api.get("/team").then((r) => setMembers(r.data)).catch((e) => toast.error(errMsg(e)));
   useEffect(() => { load(); }, []);
+
+  const changeRole = async (id, role) => {
+    try { await api.put(`/team/${id}/role`, { role }); toast.success("Role updated"); load(); }
+    catch (e) { toast.error(errMsg(e)); }
+  };
+
+  const removeMember = async (id) => {
+    if (!window.confirm("Remove this member's account?")) return;
+    try { await api.delete(`/team/${id}`); toast.success("Member removed"); load(); }
+    catch (e) { toast.error(errMsg(e)); }
+  };
 
   const save = async () => {
     try { await api.post("/team", modal); toast.success("Member added"); setModal(null); load(); }
@@ -33,15 +46,31 @@ export default function TeamPage() {
         </button>
       </div>
 
-      <div className="border border-border rounded-md bg-card overflow-hidden mb-10">
+      <div className="border border-border rounded-md bg-card overflow-hidden mb-10 overflow-x-auto">
         <table className="w-full text-sm">
-          <thead><tr className="border-b border-border bg-muted/50"><th className="text-left px-4 py-3 font-semibold">Name</th><th className="text-left px-4 py-3 font-semibold">Email</th><th className="text-left px-4 py-3 font-semibold">Role</th></tr></thead>
+          <thead><tr className="border-b border-border bg-muted/50"><th className="text-left px-4 py-3 font-semibold">Name</th><th className="text-left px-4 py-3 font-semibold">Email</th><th className="text-left px-4 py-3 font-semibold">Assign role</th><th className="px-4 py-3 text-right font-semibold">Actions</th></tr></thead>
           <tbody>
             {members.map((m) => (
               <tr key={m.id} className="border-b border-border last:border-0" data-testid="team-row">
-                <td className="px-4 py-3 font-medium">{m.name}</td>
+                <td className="px-4 py-3 font-medium whitespace-nowrap">{m.name} {m.is_superadmin && <span className="ml-1 text-xs text-primary">★</span>}</td>
                 <td className="px-4 py-3 text-muted-foreground">{m.email}</td>
-                <td className="px-4 py-3"><span className={`px-2 py-0.5 rounded-full text-xs font-medium ${roleBadge[m.role]}`}>{m.role}</span></td>
+                <td className="px-4 py-3">
+                  <select
+                    data-testid="member-role-select"
+                    value={m.role}
+                    onChange={(e) => changeRole(m.id, e.target.value)}
+                    className={`px-3 py-1.5 rounded-md border border-input bg-background text-xs font-medium focus:ring-2 focus:ring-primary focus:outline-none ${roleBadge[m.role]}`}
+                  >
+                    <option value="owner">Owner</option>
+                    <option value="foreman">Foreman</option>
+                    <option value="employee">Employee</option>
+                  </select>
+                </td>
+                <td className="px-4 py-3 text-right whitespace-nowrap">
+                  {m.id !== user?.id && (
+                    <button onClick={() => removeMember(m.id)} data-testid="member-remove-btn" className="p-1.5 rounded hover:bg-muted text-destructive transition-colors"><Trash2 className="w-4 h-4" /></button>
+                  )}
+                </td>
               </tr>
             ))}
           </tbody>
@@ -61,7 +90,7 @@ export default function TeamPage() {
               <input data-testid="member-email" className={inp} placeholder="Email" value={modal.email} onChange={(e) => setModal({ ...modal, email: e.target.value })} />
               <input data-testid="member-password" className={inp} placeholder="Temp password" value={modal.password} onChange={(e) => setModal({ ...modal, password: e.target.value })} />
               <select data-testid="member-role" className={inp} value={modal.role} onChange={(e) => setModal({ ...modal, role: e.target.value })}>
-                <option value="employee">Employee</option><option value="foreman">Foreman</option>
+                <option value="employee">Employee</option><option value="foreman">Foreman</option><option value="owner">Owner</option>
               </select>
             </div>
             <button data-testid="member-save-btn" onClick={save} className="w-full mt-6 py-2.5 rounded-md bg-primary text-primary-foreground font-semibold">Create account</button>
