@@ -591,6 +591,8 @@ async def update_role(user_id: str, req: RoleUpdateReq, user: dict = Depends(req
     if not target:
         raise HTTPException(404, "Member not found")
     if str(target["_id"]) == str(user["_id"]) and req.role != "owner":
+        if user.get("is_superadmin"):
+            raise HTTPException(400, "Super-admin owner cannot be demoted")
         owners = await db.users.count_documents({"company_id": user["company_id"], "role": "owner"})
         if owners <= 1:
             raise HTTPException(400, "Cannot demote the only owner")
@@ -648,6 +650,9 @@ class AdminTicketUpdate(BaseModel):
 
 @api.put("/admin/data-entry-tickets/{ticket_id}")
 async def admin_update_ticket(ticket_id: str, req: AdminTicketUpdate, user: dict = Depends(require_superadmin)):
+    existing = await db.data_entry_tickets.find_one({"_id": ObjectId(ticket_id)})
+    if not existing:
+        raise HTTPException(404, "Ticket not found")
     upd = {k: v for k, v in req.model_dump().items() if v is not None}
     upd["updated_at"] = now_iso()
     await db.data_entry_tickets.update_one({"_id": ObjectId(ticket_id)}, {"$set": upd})
@@ -776,6 +781,8 @@ async def startup():
             upd["password_hash"] = hash_password(admin_password)
         if not existing.get("is_superadmin"):
             upd["is_superadmin"] = True
+        if existing.get("role") != "owner":
+            upd["role"] = "owner"
         if upd:
             await db.users.update_one({"email": admin_email}, {"$set": upd})
 
