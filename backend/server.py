@@ -498,7 +498,9 @@ async def dashboard(user: dict = Depends(get_current_user)):
     plan = PLAN_LIMITS.get((comp or {}).get("plan") or "", {})
     data_hours = plan.get("data_hours", 0)
     used = sum(t.get("hours_requested", 0) for t in tickets)
-    recent_updates = sorted([t for t in tickets if t.get("updated_at")], key=lambda t: t["updated_at"], reverse=True)[:5]
+    recent_updates = sorted(
+        [t for t in tickets if t.get("updated_at") and (t.get("admin_notes") or t.get("status") != "open")],
+        key=lambda t: t["updated_at"], reverse=True)[:5]
     unread = await db.notifications.count_documents({"company_id": cid, "read": False})
     return {
         "active_jobs": len(active_jobs),
@@ -696,7 +698,11 @@ async def list_notifications(user: dict = Depends(get_current_user)):
 
 @api.post("/notifications/{nid}/read")
 async def read_notification(nid: str, user: dict = Depends(get_current_user)):
-    await db.notifications.update_one({"_id": ObjectId(nid), "company_id": user["company_id"]}, {"$set": {"read": True}})
+    try:
+        oid = ObjectId(nid)
+    except Exception:
+        raise HTTPException(400, "Invalid notification id")
+    await db.notifications.update_one({"_id": oid, "company_id": user["company_id"]}, {"$set": {"read": True}})
     return {"status": "ok"}
 
 

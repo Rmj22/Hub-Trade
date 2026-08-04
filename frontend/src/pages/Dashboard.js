@@ -62,7 +62,7 @@ export default function Dashboard() {
                 <div className="mt-4 h-2 rounded-full bg-muted overflow-hidden">
                   <div className="h-full bg-primary transition-all" style={{ width: `${d.data_hours_total ? Math.min(100, (d.data_hours_remaining / d.data_hours_total) * 100) : 0}%` }} />
                 </div>
-                <div className="text-xs text-muted-foreground mt-2">{d.data_hours_used} hrs requested this membership term</div>
+                <div className="text-xs text-muted-foreground mt-2">{d.data_hours_used} of your {d.data_hours_total}-hr plan requested this term</div>
                 <Link to="/app/data-entry" className="inline-block mt-4 text-sm text-primary font-semibold" data-testid="dashboard-request-help">Request more help →</Link>
               </div>
               <div className="lg:col-span-2 border border-border rounded-md bg-card p-6" data-testid="dashboard-ticket-updates">

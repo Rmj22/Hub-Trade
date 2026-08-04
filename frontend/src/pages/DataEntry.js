@@ -51,7 +51,7 @@ export default function DataEntryPage() {
           <div className="h-2 rounded-full bg-muted overflow-hidden">
             <div className="h-full bg-primary transition-all" style={{ width: `${hours.total ? Math.min(100, (hours.remaining / hours.total) * 100) : 0}%` }} />
           </div>
-          <div className="text-xs text-muted-foreground mt-2">{hours.used} hrs requested so far this membership term</div>
+          <div className="text-xs text-muted-foreground mt-2">{hours.used} of your {hours.total}-hr plan requested this term</div>
         </div>
       )}
 
