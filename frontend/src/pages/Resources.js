@@ -74,7 +74,6 @@ export function EquipmentPage() {
       fields={[
         { key: "name", label: "Tool", type: "text" },
         { key: "category", label: "Category", type: "text" },
-        { key: "trade", label: "Trade", type: "select", options: ["General", "Electrical", "Plumbing", "HVAC", "Carpentry", "Concrete", "Roofing"], default: "General" },
         { key: "condition", label: "Condition", type: "text" },
         { key: "location", label: "Location", type: "text" },
         { key: "status", label: "Status", type: "select", options: ["available", "assigned"], default: "available" },

@@ -99,7 +99,7 @@ export default function EstimatesPage() {
             <div className="space-y-2 mb-3">
               {modal.line_items.map((l, i) => (
                 <div key={i} className="flex gap-2">
-                  <input className={inp + " flex-1"} placeholder="Description" value={l.desc} onChange={(e) => { const li = [...modal.line_items]; li[i] = { ...li[i], desc: e.target.value }; setModal({ ...modal, line_items: li }); }} />
+                  <input type="text" className={inp + " flex-1"} placeholder="Item / work description (text)" value={l.desc} onChange={(e) => { const li = [...modal.line_items]; li[i] = { ...li[i], desc: e.target.value }; setModal({ ...modal, line_items: li }); }} />
                   <input className={inp + " w-16"} type="number" placeholder="Qty" value={l.qty} onChange={(e) => { const li = [...modal.line_items]; li[i] = { ...li[i], qty: e.target.value }; setModal({ ...modal, line_items: li }); }} />
                   <input className={inp + " w-24"} type="number" placeholder="Price" value={l.unit_price} onChange={(e) => { const li = [...modal.line_items]; li[i] = { ...li[i], unit_price: e.target.value }; setModal({ ...modal, line_items: li }); }} />
                   <button onClick={() => setModal({ ...modal, line_items: modal.line_items.filter((_, x) => x !== i) })} className="p-2 text-destructive"><X className="w-4 h-4" /></button>
@@ -107,18 +107,19 @@ export default function EstimatesPage() {
               ))}
             </div>
             <button onClick={() => setModal({ ...modal, line_items: [...modal.line_items, { desc: "", qty: 1, unit_price: 0 }] })} data-testid="add-line-item-btn" className="text-sm text-primary font-semibold mb-4">+ Add line item</button>
-            <div className="font-head font-extrabold text-xl mb-4">Total: ${total(modal.line_items).toLocaleString()}</div>
 
-            <label className="block text-xs uppercase tracking-wider text-muted-foreground mb-1.5">Photos</label>
+            <label className="block text-xs uppercase tracking-wider text-muted-foreground mb-1.5">Notes / Description</label>
+            <textarea data-testid="estimate-notes" className={inp} rows={5} placeholder="Add scope, terms, and details — special characters welcome (e.g. $, %, &, #, /, @, °, ½)" value={modal.notes} onChange={(e) => setModal({ ...modal, notes: e.target.value })} />
+
+            <label className="block text-xs uppercase tracking-wider text-muted-foreground mb-1.5 mt-4">Photos</label>
             <div className="flex flex-wrap gap-2 mb-3">
               {modal.photos.map((p) => <div key={p} className="w-16 h-16 rounded-md border border-border overflow-hidden bg-muted flex items-center justify-center"><ImageIcon className="w-5 h-5 text-muted-foreground" /></div>)}
               <button onClick={() => fileRef.current.click()} data-testid="upload-photo-btn" className="w-16 h-16 rounded-md border border-dashed border-border flex items-center justify-center hover:bg-muted transition-colors">{uploading ? "…" : <Upload className="w-5 h-5" />}</button>
               <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={upload} />
             </div>
 
-            <label className="block text-xs uppercase tracking-wider text-muted-foreground mb-1.5">Notes / Description</label>
-            <textarea data-testid="estimate-notes" className={inp} rows={5} placeholder="Add scope, terms, and details — special characters welcome (e.g. $, %, &, #, /, @, °, ½)" value={modal.notes} onChange={(e) => setModal({ ...modal, notes: e.target.value })} />
-            <button data-testid="estimate-save-btn" onClick={save} className="w-full mt-4 py-2.5 rounded-md bg-primary text-primary-foreground font-semibold">Save estimate</button>
+            <div className="font-head font-extrabold text-xl mt-4 mb-4" data-testid="estimate-total">Total: ${total(modal.line_items).toLocaleString()}</div>
+            <button data-testid="estimate-save-btn" onClick={save} className="w-full py-2.5 rounded-md bg-primary text-primary-foreground font-semibold">Save estimate</button>
           </div>
         </div>
       )}
