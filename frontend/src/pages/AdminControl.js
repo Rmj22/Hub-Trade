@@ -62,7 +62,7 @@ export default function AdminControl() {
       <header className="h-16 border-b border-border flex items-center justify-between px-6 backdrop-blur-xl bg-card/70 sticky top-0 z-30">
         <div className="flex items-center gap-2">
           <ShieldCheck className="w-6 h-6 text-primary" />
-          <span className="font-head font-extrabold text-lg tracking-tight">FieldForge Admin Control</span>
+          <span className="font-head font-extrabold text-lg tracking-tight">Trade Books Admin Control</span>
         </div>
         <div className="flex items-center gap-3">
           <ThemeToggle />
