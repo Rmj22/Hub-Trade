@@ -4,6 +4,8 @@ ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / ".env")
 
 import os
+import io
+import csv
 import uuid
 import logging
 import secrets
@@ -113,6 +115,16 @@ async def create_notification(company_id: str, message: str, ticket_id: str = No
     })
 
 
+async def log_audit(company_id: str, user: dict, action: str):
+    await db.audit_logs.insert_one({
+        "company_id": company_id,
+        "user_id": str(user["_id"]) if user and user.get("_id") else None,
+        "user_name": (user.get("name") if user else None) or "System",
+        "action": action,
+        "created_at": now_iso(),
+    })
+
+
 app = FastAPI()
 api = APIRouter(prefix="/api")
 
@@ -194,6 +206,8 @@ async def login(req: LoginReq, response: Response):
         raise HTTPException(status_code=401, detail="Invalid email or password")
     token = create_access_token(str(user["_id"]), email)
     set_cookies(response, token)
+    if user.get("company_id"):
+        await log_audit(user["company_id"], user, "Logged in")
     return clean(user)
 
 
@@ -293,6 +307,8 @@ def crud_router(name: str, collection: str, Model, create_roles=("owner", "forem
         items = await db[collection].find({"company_id": user["company_id"]}).sort("_id", -1).to_list(1000)
         return [clean(i) for i in items]
 
+    label = name[:-1] if name.endswith("s") else name
+
     @r.post(f"/{name}")
     async def create_item(payload: Model, user: dict = Depends(require_role(*create_roles))):
         doc = payload.model_dump()
@@ -300,6 +316,7 @@ def crud_router(name: str, collection: str, Model, create_roles=("owner", "forem
         doc["created_at"] = now_iso()
         res = await db[collection].insert_one(doc)
         doc["_id"] = res.inserted_id
+        await log_audit(user["company_id"], user, f"Created {label}: {doc.get('name', '')}".strip())
         return clean(doc)
 
     @r.get(f"/{name}/{{item_id}}")
@@ -314,11 +331,14 @@ def crud_router(name: str, collection: str, Model, create_roles=("owner", "forem
         doc = payload.model_dump()
         await db[collection].update_one({"_id": ObjectId(item_id), "company_id": user["company_id"]}, {"$set": doc})
         item = await db[collection].find_one({"_id": ObjectId(item_id)})
+        await log_audit(user["company_id"], user, f"Updated {label}: {doc.get('name', '')}".strip())
         return clean(item)
 
     @r.delete(f"/{name}/{{item_id}}")
     async def delete_item(item_id: str, user: dict = Depends(require_role("owner"))):
+        gone = await db[collection].find_one({"_id": ObjectId(item_id), "company_id": user["company_id"]})
         await db[collection].delete_one({"_id": ObjectId(item_id), "company_id": user["company_id"]})
+        await log_audit(user["company_id"], user, f"Deleted {label}: {gone.get('name', '') if gone else ''}".strip())
         return {"status": "deleted"}
 
     return r
@@ -345,6 +365,7 @@ async def create_estimate(payload: Estimate, user: dict = Depends(require_role("
     doc["created_at"] = now_iso()
     res = await db.estimates.insert_one(doc)
     doc["_id"] = res.inserted_id
+    await log_audit(user["company_id"], user, f"Created estimate for {payload.customer_name}")
     return clean(doc)
 
 
@@ -399,6 +420,7 @@ async def send_estimate(item_id: str, user: dict = Depends(require_role("owner",
         logger.error(f"email failed {e}")
         raise HTTPException(502, "Failed to send email")
     await db.estimates.update_one({"_id": ObjectId(item_id)}, {"$set": {"status": "sent", "sent_at": now_iso()}})
+    await log_audit(user["company_id"], user, f"Sent estimate to {est.get('customer_email')}")
     return {"status": "sent"}
 
 
@@ -433,6 +455,8 @@ async def clock_in(req: TimeCardAction, user: dict = Depends(get_current_user)):
            "clock_in": now_iso(), "clock_out": None, "created_at": now_iso()}
     res = await db.timecards.insert_one(doc)
     doc["_id"] = res.inserted_id
+    emp = await db.employees.find_one({"_id": ObjectId(req.employee_id)}) if ObjectId.is_valid(req.employee_id) else None
+    await log_audit(user["company_id"], user, f"Clocked in {emp.get('name') if emp else 'employee'}")
     return clean(doc)
 
 
@@ -446,6 +470,8 @@ async def clock_out(req: TimeCardAction, user: dict = Depends(get_current_user))
     hours = round((out - ci).total_seconds() / 3600, 2)
     await db.timecards.update_one({"_id": tc["_id"]}, {"$set": {"clock_out": out.isoformat(), "hours": hours}})
     tc = await db.timecards.find_one({"_id": tc["_id"]})
+    emp = await db.employees.find_one({"_id": ObjectId(req.employee_id)}) if ObjectId.is_valid(req.employee_id) else None
+    await log_audit(user["company_id"], user, f"Clocked out {emp.get('name') if emp else 'employee'} ({hours}h)")
     return clean(tc)
 
 
@@ -597,6 +623,7 @@ async def add_team(req: TeamMemberReq, user: dict = Depends(require_role("owner"
            "role": req.role, "company_id": user["company_id"], "created_at": now_iso()}
     res = await db.users.insert_one(doc)
     doc["_id"] = res.inserted_id
+    await log_audit(user["company_id"], user, f"Added team member {req.name} ({req.role})")
     return clean(doc)
 
 
@@ -619,6 +646,7 @@ async def update_role(user_id: str, req: RoleUpdateReq, user: dict = Depends(req
             raise HTTPException(400, "Cannot demote the only owner")
     await db.users.update_one({"_id": ObjectId(user_id)}, {"$set": {"role": req.role}})
     target["role"] = req.role
+    await log_audit(user["company_id"], user, f"Changed {target.get('name')}'s role to {req.role}")
     return clean(target)
 
 
@@ -626,7 +654,9 @@ async def update_role(user_id: str, req: RoleUpdateReq, user: dict = Depends(req
 async def remove_team(user_id: str, user: dict = Depends(require_role("owner"))):
     if str(user_id) == str(user["_id"]):
         raise HTTPException(400, "You cannot remove yourself")
+    gone = await db.users.find_one({"_id": ObjectId(user_id), "company_id": user["company_id"]})
     await db.users.delete_one({"_id": ObjectId(user_id), "company_id": user["company_id"]})
+    await log_audit(user["company_id"], user, f"Removed team member {gone.get('name') if gone else ''}".strip())
     return {"status": "deleted"}
 
 
@@ -654,6 +684,7 @@ async def create_ticket(req: DataEntryTicketReq, user: dict = Depends(get_curren
            "status": "open", "admin_notes": "", "created_at": now_iso()}
     res = await db.data_entry_tickets.insert_one(doc)
     doc["_id"] = res.inserted_id
+    await log_audit(user["company_id"], user, f"Submitted data-entry ticket: {req.title}")
     return clean(doc)
 
 
@@ -710,6 +741,43 @@ async def read_notification(nid: str, user: dict = Depends(get_current_user)):
 async def read_all_notifications(user: dict = Depends(get_current_user)):
     await db.notifications.update_many({"company_id": user["company_id"], "read": False}, {"$set": {"read": True}})
     return {"status": "ok"}
+
+
+# ---------- Audit logs ----------
+def _audit_query(company_id: str, start: Optional[str], end: Optional[str]) -> dict:
+    q = {"company_id": company_id}
+    rng = {}
+    if start:
+        rng["$gte"] = f"{start}T00:00:00"
+    if end:
+        rng["$lte"] = f"{end}T23:59:59.999999"
+    if rng:
+        q["created_at"] = rng
+    return q
+
+
+@api.get("/audit-logs")
+async def list_audit_logs(start: Optional[str] = None, end: Optional[str] = None, user: dict = Depends(require_role("owner"))):
+    q = _audit_query(user["company_id"], start, end)
+    items = await db.audit_logs.find(q).sort("created_at", -1).limit(1000).to_list(1000)
+    return [clean(i) for i in items]
+
+
+@api.get("/audit-logs/export")
+async def export_audit_logs(start: Optional[str] = None, end: Optional[str] = None, user: dict = Depends(require_role("owner"))):
+    q = _audit_query(user["company_id"], start, end)
+    items = await db.audit_logs.find(q).sort("created_at", -1).to_list(100000)
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(["Timestamp", "User", "Action"])
+    for i in items:
+        writer.writerow([i.get("created_at", ""), i.get("user_name", ""), i.get("action", "")])
+    filename = f"audit_logs_{start or 'all'}_to_{end or 'all'}.csv"
+    return StarletteResponse(
+        content=buf.getvalue(),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @api.get("/admin/stats")
@@ -814,6 +882,7 @@ async def startup():
     await db.messages.create_index([("company_id", 1), ("job_id", 1), ("_id", -1)])
     await db.timecards.create_index([("company_id", 1), ("created_at", -1)])
     await db.timecards.create_index([("company_id", 1), ("clock_out", 1)])
+    await db.audit_logs.create_index([("company_id", 1), ("created_at", -1)])
     for c in ("jobs", "employees", "vehicles", "equipment", "estimates"):
         await db[c].create_index("company_id")
     try:

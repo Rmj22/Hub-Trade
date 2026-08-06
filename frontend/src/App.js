@@ -11,6 +11,7 @@ import EstimatesPage from "./pages/Estimates";
 import TimeCardsPage from "./pages/TimeCards";
 import MessagesPage from "./pages/Messages";
 import ReportsPage from "./pages/Reports";
+import AuditLogsPage from "./pages/AuditLogs";
 import DataEntryPage from "./pages/DataEntry";
 import AdminControl from "./pages/AdminControl";
 import { MembershipPage, PaymentSuccess } from "./pages/Membership";
@@ -44,6 +45,7 @@ function App() {
           <Route path="/app/data-entry" element={<Protected><DataEntryPage /></Protected>} />
           <Route path="/app/messages" element={<Protected><MessagesPage /></Protected>} />
           <Route path="/app/reports" element={<Protected roles={["owner"]}><ReportsPage /></Protected>} />
+          <Route path="/app/audit-logs" element={<Protected roles={["owner"]}><AuditLogsPage /></Protected>} />
           <Route path="/app/membership" element={<Protected roles={["owner"]}><MembershipPage /></Protected>} />
           <Route path="/admin-control-241" element={<AdminControl />} />
           <Route path="*" element={<Navigate to="/" replace />} />
