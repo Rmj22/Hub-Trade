@@ -10,15 +10,15 @@ export default function AuditLogsPage() {
   const [end, setEnd] = useState("");
   const [exporting, setExporting] = useState(false);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (s = start, e = end) => {
     setLoading(true);
     try {
       const params = {};
-      if (start) params.start = start;
-      if (end) params.end = end;
+      if (s) params.start = s;
+      if (e) params.end = e;
       const { data } = await api.get("/audit-logs", { params });
       setLogs(data);
-    } catch (e) { toast.error(errMsg(e)); }
+    } catch (err) { toast.error(errMsg(err)); }
     setLoading(false);
   }, [start, end]);
 
@@ -26,7 +26,7 @@ export default function AuditLogsPage() {
 
   const applyFilter = () => {
     if (start && end && start > end) { toast.error("Start date must be before end date"); return; }
-    load();
+    load(start, end);
   };
 
   const exportCsv = async () => {
@@ -83,7 +83,7 @@ export default function AuditLogsPage() {
           <Filter className="w-4 h-4" /> Apply
         </button>
         {(start || end) && (
-          <button data-testid="audit-clear-filter-btn" onClick={() => { setStart(""); setEnd(""); setTimeout(load, 0); }}
+          <button data-testid="audit-clear-filter-btn" onClick={() => { setStart(""); setEnd(""); load("", ""); }}
             className="text-sm text-muted-foreground hover:text-foreground transition-colors">Clear</button>
         )}
       </div>
