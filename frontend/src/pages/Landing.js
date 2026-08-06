@@ -106,7 +106,7 @@ export default function Landing() {
         <div className="max-w-6xl mx-auto">
           <div className="text-xs uppercase tracking-[0.2em] text-muted-foreground mb-2">Membership</div>
           <h2 className="font-head font-extrabold text-2xl sm:text-3xl lg:text-4xl tracking-tight mb-2">Simple plans. Billed every 6 months.</h2>
-          <p className="text-muted-foreground mb-12">Prices shown monthly. You're billed the 6-month total up front.</p>
+          <p className="text-muted-foreground mb-12">Prices shown monthly.</p>
           <div className="grid md:grid-cols-3 gap-6">
             {PLANS.map((p) => (
               <div key={p.key} data-testid={`plan-${p.key}`} className={`relative border rounded-md p-8 bg-card ${p.popular ? "border-primary" : "border-border"}`}>
