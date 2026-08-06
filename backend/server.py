@@ -40,7 +40,7 @@ STRIPE_WEBHOOK_SECRET = os.environ.get("STRIPE_WEBHOOK_SECRET", "")
 
 EMAIL_BASE_URL = "https://integrations.emergentagent.com"
 EMAIL_KEY = os.environ.get("EMERGENT_EMAIL_KEY")
-EMAIL_FROM_NAME = os.environ.get("EMAIL_FROM_NAME", "Trade Books")
+EMAIL_FROM_NAME = os.environ.get("EMAIL_FROM_NAME", "Hub Trade")
 
 STORAGE_URL = "https://integrations.emergentagent.com/objstore/api/v1/storage"
 EMERGENT_KEY = os.environ.get("EMERGENT_LLM_KEY")
@@ -401,7 +401,7 @@ async def send_estimate(item_id: str, user: dict = Depends(require_role("owner",
     )
     html = f"""
     <table width='100%' style='font-family:Arial,sans-serif;max-width:600px;margin:auto'>
-      <tr><td><h2 style='color:#FF3B30'>{comp.get('name','Trade Books')} — Estimate</h2>
+      <tr><td><h2 style='color:#FF3B30'>{comp.get('name','Hub Trade')} — Estimate</h2>
       <p>Prepared for <b>{est.get('customer_name','')}</b></p>
       <table width='100%' style='border-collapse:collapse'>
         <tr style='background:#111;color:#fff'><th style='padding:8px;text-align:left'>Item</th><th>Qty</th><th style='text-align:right'>Unit</th><th style='text-align:right'>Total</th></tr>
@@ -411,7 +411,7 @@ async def send_estimate(item_id: str, user: dict = Depends(require_role("owner",
       <p style='color:#555'>{est.get('notes','')}</p>
       </td></tr>
     </table>"""
-    payload = {"to": [est["customer_email"]], "subject": f"Your estimate from {comp.get('name','Trade Books')}", "html": html, "from_name": EMAIL_FROM_NAME}
+    payload = {"to": [est["customer_email"]], "subject": f"Your estimate from {comp.get('name','Hub Trade')}", "html": html, "from_name": EMAIL_FROM_NAME}
     try:
         async with httpx.AsyncClient(timeout=30) as c:
             resp = await c.post(f"{EMAIL_BASE_URL}/api/v1/email/send", headers={"X-Email-Key": EMAIL_KEY}, json=payload)

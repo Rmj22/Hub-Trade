@@ -27,7 +27,7 @@ export default function Landing() {
         <div className="max-w-6xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <HardHat className="w-6 h-6 text-primary" />
-            <span className="font-head font-extrabold text-xl tracking-tight">Trade Books</span>
+            <span className="font-head font-extrabold text-xl tracking-tight">Hub Trade</span>
           </div>
           <div className="flex items-center gap-3">
             <ThemeToggle />
@@ -115,7 +115,7 @@ export default function Landing() {
       </section>
 
       <footer className="border-t border-border py-10 px-4 sm:px-6 text-center text-sm text-muted-foreground">
-        <div className="flex items-center gap-2 justify-center mb-2"><HardHat className="w-5 h-5 text-primary" /><span className="font-head font-bold">Trade Books</span></div>
+        <div className="flex items-center gap-2 justify-center mb-2"><HardHat className="w-5 h-5 text-primary" /><span className="font-head font-bold">Hub Trade</span></div>
         Manage every part of your trade business from one platform.
       </footer>
     </div>

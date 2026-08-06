@@ -25,7 +25,7 @@ export function LoginPage() {
       <div className="w-full max-w-md">
         <Link to="/" className="flex items-center gap-2 justify-center mb-8">
           <HardHat className="w-7 h-7 text-primary" />
-          <span className="font-head font-extrabold text-2xl tracking-tight">Trade Books</span>
+          <span className="font-head font-extrabold text-2xl tracking-tight">Hub Trade</span>
         </Link>
         <div className="border border-border rounded-md bg-card p-8">
           <h1 className="font-head font-extrabold text-3xl mb-2 tracking-tight">Log in</h1>
@@ -67,7 +67,7 @@ export function RegisterPage() {
       <div className="w-full max-w-md">
         <Link to="/" className="flex items-center gap-2 justify-center mb-8">
           <HardHat className="w-7 h-7 text-primary" />
-          <span className="font-head font-extrabold text-2xl tracking-tight">Trade Books</span>
+          <span className="font-head font-extrabold text-2xl tracking-tight">Hub Trade</span>
         </Link>
         <div className="border border-border rounded-md bg-card p-8">
           <h1 className="font-head font-extrabold text-3xl mb-2 tracking-tight">Start free</h1>

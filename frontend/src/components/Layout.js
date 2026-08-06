@@ -33,7 +33,7 @@ export default function Layout({ children }) {
     <div className="flex flex-col h-full">
       <div className="flex items-center gap-2 px-6 h-16 border-b border-border shrink-0">
         <HardHat className="w-6 h-6 text-primary" />
-        <span className="font-head font-extrabold text-lg tracking-tight">Trade Books</span>
+        <span className="font-head font-extrabold text-lg tracking-tight">Hub Trade</span>
       </div>
       <nav className="flex-1 overflow-y-auto p-3 space-y-1">
         {links.map((n) => (

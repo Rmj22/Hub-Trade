@@ -9,19 +9,19 @@ stripe.api_key = os.environ.get("STRIPE_SECRET_KEY") or "sk_test_emergent"
 CATALOG = [
     {
         "emergent_product_id": "startup_membership",
-        "name": "Trade Books Startup Membership",
+        "name": "Hub Trade Startup Membership",
         "tax_code": "txcd_10103001",
         "prices": [{"lookup_key": "startup_6mo", "amount": 36000, "currency": "usd", "interval": "month", "interval_count": 6}],
     },
     {
         "emergent_product_id": "medium_membership",
-        "name": "Trade Books Medium Membership",
+        "name": "Hub Trade Medium Membership",
         "tax_code": "txcd_10103001",
         "prices": [{"lookup_key": "medium_6mo", "amount": 53400, "currency": "usd", "interval": "month", "interval_count": 6}],
     },
     {
         "emergent_product_id": "large_membership",
-        "name": "Trade Books Large Membership",
+        "name": "Hub Trade Large Membership",
         "tax_code": "txcd_10103001",
         "prices": [{"lookup_key": "large_6mo", "amount": 89400, "currency": "usd", "interval": "month", "interval_count": 6}],
     },
