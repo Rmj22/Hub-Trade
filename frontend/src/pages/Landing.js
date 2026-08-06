@@ -11,9 +11,9 @@ const TRADE_TILES = [
 ];
 
 const PLANS = [
-  { key: "startup", name: "Startup", price: 60, link: "https://buy.stripe.com/14A00k8Qn72s8yLghw38402", feats: ["Up to 20 employees", "3 vehicles", "10 active jobs", "30 equipment pieces", "5 hrs data-entry help"] },
-  { key: "medium", name: "Medium", price: 89, popular: true, link: "https://buy.stripe.com/6oUdRa0jR2MceX94yO38401", feats: ["Up to 50 employees", "10 vehicles", "30 active jobs", "60 equipment pieces", "10 hrs data-entry help"] },
-  { key: "large", name: "Large", price: 149, link: "https://buy.stripe.com/8x26oId6D9aA02f0iy38400", feats: ["Up to 100 employees", "20 vehicles", "50 active jobs", "120 equipment pieces", "20 hrs data-entry help"] },
+  { key: "startup", name: "Startup", price: 60, link: process.env.REACT_APP_STRIPE_PAYMENT_LINK_STARTUP, feats: ["Up to 20 employees", "3 vehicles", "10 active jobs", "30 equipment pieces", "5 hrs data-entry help"] },
+  { key: "medium", name: "Medium", price: 89, popular: true, link: process.env.REACT_APP_STRIPE_PAYMENT_LINK_MEDIUM, feats: ["Up to 50 employees", "10 vehicles", "30 active jobs", "60 equipment pieces", "10 hrs data-entry help"] },
+  { key: "large", name: "Large", price: 149, link: process.env.REACT_APP_STRIPE_PAYMENT_LINK_LARGE, feats: ["Up to 100 employees", "20 vehicles", "50 active jobs", "120 equipment pieces", "20 hrs data-entry help"] },
 ];
 
 const FEATURES = [

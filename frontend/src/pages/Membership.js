@@ -5,6 +5,12 @@ import { toast } from "sonner";
 import { Check, Loader2 } from "lucide-react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 
+const PAYMENT_LINKS = {
+  startup: process.env.REACT_APP_STRIPE_PAYMENT_LINK_STARTUP,
+  medium: process.env.REACT_APP_STRIPE_PAYMENT_LINK_MEDIUM,
+  large: process.env.REACT_APP_STRIPE_PAYMENT_LINK_LARGE,
+};
+
 const PLANS = [
   { key: "startup", name: "Startup", price: 60, feats: ["20 employees", "3 vehicles", "10 active jobs", "30 equipment", "5 hrs data-entry"] },
   { key: "medium", name: "Medium", price: 89, popular: true, feats: ["50 employees", "10 vehicles", "30 active jobs", "60 equipment", "10 hrs data-entry"] },
@@ -18,12 +24,6 @@ export function MembershipPage() {
   const active = user?.company?.membership_status === "active";
 
   useEffect(() => { refresh(); /* eslint-disable-next-line */ }, []);
-
-  const PAYMENT_LINKS = {
-    startup: "https://buy.stripe.com/14A00k8Qn72s8yLghw38402",
-    medium: "https://buy.stripe.com/6oUdRa0jR2MceX94yO38401",
-    large: "https://buy.stripe.com/8x26oId6D9aA02f0iy38400",
-  };
 
   const checkout = async (plan) => {
     if (PAYMENT_LINKS[plan]) { window.location.href = PAYMENT_LINKS[plan]; return; }
