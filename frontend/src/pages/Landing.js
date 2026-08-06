@@ -3,7 +3,12 @@ import { motion } from "framer-motion";
 import { HardHat, ArrowRight, Briefcase, Users, Truck, Wrench, FileText, Clock, Check } from "lucide-react";
 import ThemeToggle from "../components/ThemeToggle";
 
-const HERO = "https://images.unsplash.com/photo-1697305592218-d5d0c1bab2e3?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDk1Nzh8MHwxfHNlYXJjaHwxfHxtb2Rlcm4lMjBjb25zdHJ1Y3Rpb24lMjB3b3JrZXIlMjB1c2luZyUyMHRhYmxldHxlbnwwfHx8fDE3ODU0Mzg4ODJ8MA&ixlib=rb-4.1.0&q=85";
+const TRADE_TILES = [
+  { label: "Framing Crews", img: "https://images.unsplash.com/photo-1646324554833-f0b6a479fa5d?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2NzV8MHwxfHNlYXJjaHwzfHxjb25zdHJ1Y3Rpb24lMjBmcmFtaW5nJTIwY3JldyUyMHdvb2QlMjBmcmFtaW5nfGVufDB8fHx8MTc4NjAzNTgxMXww&ixlib=rb-4.1.0&q=85" },
+  { label: "Plumbers", img: "https://images.unsplash.com/photo-1676210134188-4c05dd172f89?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1OTV8MHwxfHNlYXJjaHwxfHxwbHVtYmVyJTIwd29ya2luZyUyMHBpcGVzfGVufDB8fHx8MTc4NjAzNTgxMXww&ixlib=rb-4.1.0&q=85" },
+  { label: "Concrete Workers", img: "https://images.unsplash.com/photo-1651195297119-afc97f14a40d?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2NzZ8MHwxfHNlYXJjaHwyfHxjb25jcmV0ZSUyMHdvcmtlcnMlMjBwb3VyaW5nJTIwY29uY3JldGV8ZW58MHx8fHwxNzg2MDM1ODEyfDA&ixlib=rb-4.1.0&q=85" },
+  { label: "Electricians", img: "https://images.unsplash.com/photo-1621905251189-08b45d6a269e?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NTYxOTF8MHwxfHNlYXJjaHwzfHxlbGVjdHJpY2lhbiUyMHdpcmluZyUyMGVsZWN0cmljYWwlMjBwYW5lbHxlbnwwfHx8fDE3ODYwMzU4MTJ8MA&ixlib=rb-4.1.0&q=85" },
+];
 
 const PLANS = [
   { key: "startup", name: "Startup", price: 60, link: "https://buy.stripe.com/14A00k8Qn72s8yLghw38402", feats: ["Up to 20 employees", "3 vehicles", "10 active jobs", "30 equipment pieces", "5 hrs data-entry help"] },
@@ -59,9 +64,21 @@ export default function Landing() {
             </div>
           </motion.div>
           <motion.div initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 0.7 }} className="lg:col-span-5">
-            <div className="relative rounded-md overflow-hidden border border-border">
-              <img src={HERO} alt="Construction worker using tablet" className="w-full h-[380px] object-cover" />
-              <div className="absolute inset-0 bg-black/20" />
+            <div className="grid grid-cols-2 gap-3" data-testid="hero-trade-tiles">
+              {TRADE_TILES.map((tile, i) => (
+                <motion.div
+                  key={tile.label}
+                  initial={{ opacity: 0, y: 16 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.5, delay: 0.15 + i * 0.1 }}
+                  className={`group relative rounded-md overflow-hidden border border-border ${i % 2 === 1 ? "mt-6" : ""}`}
+                  data-testid={`hero-tile-${tile.label.toLowerCase().split(" ")[0]}`}
+                >
+                  <img src={tile.img} alt={tile.label} className="w-full h-40 sm:h-48 object-cover transition-transform duration-500 group-hover:scale-105" />
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/10 to-transparent" />
+                  <span className="absolute bottom-2 left-3 text-white font-head font-bold text-sm sm:text-base tracking-tight drop-shadow">{tile.label}</span>
+                </motion.div>
+              ))}
             </div>
           </motion.div>
         </div>
