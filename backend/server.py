@@ -272,6 +272,8 @@ class Equipment(BaseModel):
     name: str
     category: str = "General"
     trade: str = "General"
+    condition: str = ""
+    location: str = ""
     status: str = "available"  # available, assigned
     inspection_date: Optional[str] = None
     service_reminder: Optional[str] = None

@@ -63,17 +63,20 @@ export function EquipmentPage() {
     <CrudManager
       title="Equipment" endpoint="equipment" testid="equipment"
       columns={[
-        { key: "name", label: "Equipment" },
+        { key: "name", label: "Tool" },
         { key: "category", label: "Category" },
-        { key: "trade", label: "Trade" },
+        { key: "condition", label: "Condition" },
+        { key: "location", label: "Location" },
         { key: "status", label: "Status", render: (it) => badge(it.status, { available: "bg-green-500/15 text-green-500", assigned: "bg-primary/20 text-primary" }) },
         { key: "inspection_date", label: "Inspection" },
         { key: "hours_used", label: "Hours" },
       ]}
       fields={[
-        { key: "name", label: "Name", type: "text" },
+        { key: "name", label: "Tool", type: "text" },
         { key: "category", label: "Category", type: "text" },
         { key: "trade", label: "Trade", type: "select", options: ["General", "Electrical", "Plumbing", "HVAC", "Carpentry", "Concrete", "Roofing"], default: "General" },
+        { key: "condition", label: "Condition", type: "text" },
+        { key: "location", label: "Location", type: "text" },
         { key: "status", label: "Status", type: "select", options: ["available", "assigned"], default: "available" },
         { key: "inspection_date", label: "Last Inspection", type: "date" },
         { key: "service_reminder", label: "Service Reminder", type: "date" },

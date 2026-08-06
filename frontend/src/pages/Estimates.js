@@ -116,7 +116,8 @@ export default function EstimatesPage() {
               <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={upload} />
             </div>
 
-            <textarea className={inp} rows={2} placeholder="Notes" value={modal.notes} onChange={(e) => setModal({ ...modal, notes: e.target.value })} />
+            <label className="block text-xs uppercase tracking-wider text-muted-foreground mb-1.5">Notes / Description</label>
+            <textarea data-testid="estimate-notes" className={inp} rows={5} placeholder="Add scope, terms, and details — special characters welcome (e.g. $, %, &, #, /, @, °, ½)" value={modal.notes} onChange={(e) => setModal({ ...modal, notes: e.target.value })} />
             <button data-testid="estimate-save-btn" onClick={save} className="w-full mt-4 py-2.5 rounded-md bg-primary text-primary-foreground font-semibold">Save estimate</button>
           </div>
         </div>
