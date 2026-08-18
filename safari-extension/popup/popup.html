@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="stylesheet" href="popup.css" />
+    <title>Hub Trade Companion</title>
+  </head>
+  <body>
+    <header class="ht-header">
+      <img src="../icons/icon-48.png" alt="Hub Trade" class="ht-logo" />
+      <div>
+        <h1 class="ht-title">Hub Trade</h1>
+        <p class="ht-subtitle">Field companion</p>
+      </div>
+    </header>
+
+    <section class="ht-section">
+      <h2 class="ht-section-title">Quick links</h2>
+      <div class="ht-links" id="ht-links"></div>
+    </section>
+
+    <section class="ht-section">
+      <h2 class="ht-section-title">Quick job note</h2>
+      <div class="ht-note-form">
+        <textarea id="ht-note-input" rows="2" placeholder="Jot a note — materials, measurements, reminders…"></textarea>
+        <button id="ht-add-note" class="ht-btn ht-btn-primary" type="button">Add note</button>
+      </div>
+      <ul class="ht-notes" id="ht-notes"></ul>
+      <button id="ht-clear-notes" class="ht-btn ht-btn-ghost" type="button" hidden>Clear all notes</button>
+    </section>
+
+    <footer class="ht-footer">
+      <button id="ht-open-app" class="ht-btn ht-btn-primary ht-full" type="button">Open Hub Trade</button>
+    </footer>
+
+    <script src="popup.js"></script>
+  </body>
+</html>
