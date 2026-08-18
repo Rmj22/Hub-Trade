@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "Hub Trade Companion",
+  "name": "Hub Trade",
   "version": "1.0.0",
   "description": "Quick access to your Hub Trade dashboard, jobs, time cards and data-entry help — plus one-tap job notes from any page.",
   "icons": {
@@ -10,7 +10,7 @@
     "128": "icons/icon-128.png"
   },
   "action": {
-    "default_title": "Hub Trade Companion",
+    "default_title": "Hub Trade",
     "default_popup": "popup/popup.html",
     "default_icon": {
       "16": "icons/icon-16.png",
