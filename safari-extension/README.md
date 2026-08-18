@@ -57,6 +57,43 @@ The script copies the generated `icons/Icon.png` into `Hub Trade/Resources/Icon.
 
 ---
 
+---
+
+## ⚠️ "Exporting for App Store Distribution failed. Please download the logs artifact"
+
+This generic Organizer message hides the real cause, which is written in the export log. **Read the real error first:**
+- Xcode **Organizer ▸ Distribute App** failure ▸ **Show Logs** (gear/▸ icon) ▸ open **`IDEDistribution.standard.log`** and copy the lines after `error:`.
+
+For a freshly converted Safari Web Extension, the cause is almost always one of these three — fix in order:
+
+**1) App icon not set (`CFBundleIconName` missing).** Most common. Install the provided icon set:
+```bash
+bash scripts/install-appicon.sh /path/to/generated/xcode/project-root "Hub Trade"
+```
+Then in Xcode (app target): **Build Settings ▸ "Asset Catalog App Icon Set Name" = `AppIcon`**, and **General ▸ App Icon Source = `AppIcon`**. Clean Build Folder → re-Archive.
+
+**2) Extension bundle ID is not a child of the app bundle ID.** App Store upload REQUIRES the extension's bundle identifier to be prefixed by the app's. Example:
+- App: `com.yourcompany.hubtrade`
+- Extension: `com.yourcompany.hubtrade.Extension`  ✅ (must start with the app's ID)
+
+Set both under each target ▸ **Signing & Capabilities ▸ Bundle Identifier**. They must be **unique** and **registered** (Automatic signing with your Team will register them).
+
+**3) No matching App Store Connect record / signing.** Before you can export for App Store:
+- In **App Store Connect**, create an app record using the **app's** bundle ID (`com.yourcompany.hubtrade`).
+- In Xcode, select your **Team** on both targets and use **Automatic** signing (needs a **paid** Apple Developer Program membership — the free account cannot export for App Store).
+- Ensure the archive's **version (CFBundleShortVersionString)** and **build (CFBundleVersion)** are set and the build number is higher than any previously uploaded.
+
+**Other frequent log errors & fixes**
+- `Missing Info.plist value CFBundleIconName` → do step 1.
+- `No profiles for '…' were found` / `requires a provisioning profile` → step 3 (select Team + Automatic signing).
+- `App Store Connect Operation Error … bundle identifier … already exists` → the app record uses a different ID; match it or create the record with your ID.
+- `Invalid Bundle. The bundle at '…appex' … CFBundleVersion must match the app` → make the extension's version/build equal the app's.
+- `Asset validation failed … icon … alpha channel` → not applicable here (all provided icons are opaque RGB).
+
+> Tip: paste the exact `error:` line from `IDEDistribution.standard.log` and the app + extension bundle IDs, and the fix is usually one of the above.
+
+---
+
 ## Build / run in Safari (macOS)
 
 1. Convert the extension to an Xcode project:
