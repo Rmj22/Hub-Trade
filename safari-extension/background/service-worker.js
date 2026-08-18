@@ -46,6 +46,8 @@ async function addNote(text, source) {
 }
 
 function notify(title, message) {
+  // Safari (esp. iOS) does not support the notifications API — guard + degrade gracefully.
+  if (!api.notifications || typeof api.notifications.create !== "function") return;
   try {
     api.notifications.create({
       type: "basic",
