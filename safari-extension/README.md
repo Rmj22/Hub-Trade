@@ -32,9 +32,18 @@ All JS/CSS referenced by `manifest.json`:
 
 ## ⚠️ Fixing: "Build input file cannot be found: .../Hub Trade/Resources/Icon.png"
 
-This error comes from the **Xcode app wrapper** that `safari-web-extension-converter` generates — not from the extension bundle. The generated App target references an app icon named `Icon.png` in its `Resources`, but the file is missing.
+This error comes from the **Xcode app wrapper** that `safari-web-extension-converter` generates — not from the extension bundle. The generated App target references an app icon named `Icon.png` in its `Resources`, but the file is missing. **This is unrelated to domains** — no custom domain, signing, or developer account is required to fix it.
 
-**Fix (pick one):**
+**Recommended — one command (no custom domain, fully offline):**
+```bash
+# run from inside safari-extension/, pass your generated Xcode project's root folder
+bash scripts/fix-icon.sh /path/to/generated/xcode/project-root "Hub Trade"
+```
+The script copies the generated `icons/Icon.png` into `Hub Trade/Resources/Icon.png` (and any other `Resources/` folder that references it). Then in Xcode: **Product ▸ Clean Build Folder (⇧⌘K) ▸ Build (⌘B)**.
+
+**Optional — give the app a real icon set (also domain-free):** drag `xcode-appicon/Assets.xcassets/AppIcon.appiconset` into your app target's `Assets.xcassets` (replace the empty `AppIcon`). This removes the need for the loose `Icon.png` entirely.
+
+**Manual alternatives (pick one):**
 
 1. **Add the provided icon** — copy `icons/Icon.png` (1024×1024, generated here) into the missing location and add it to the target:
    ```bash
