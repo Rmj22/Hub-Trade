@@ -1,80 +1,62 @@
 # yaml-language-server: $schema=https://codemagic.io
-
 workflows:
   my-build-pipeline:
     name: Production App Deployment
     max_build_duration: 60
     instance_type: mac_mini_m1
-      - name: Install Web Dependencies & Build React App
-        script: |
-          cd frontend
-          npm install --force # 👈 Changed from --legacy-peer-deps to --force to align with your project structure
-          npm run build
 
     environment:
       groups:
         - apple_credentials
-
       vars:
-        APP_NAME: "tradehub"
+        XCODE_WORKSPACE: "frontend/ios/App/App.xcworkspace"
+        XCODE_SCHEME: "App"
         BUNDLE_ID: "com.summitofficesolution.tradehub"
-        XCODE_WORKSPACE: "frontend/tradehub.xcworkspace"
-        XCODE_SCHEME: "tradehub"
-
       xcode: latest
       cocoapods: default
 
     triggering:
       events:
         - push
-
       branch_patterns:
-        - pattern: "main"
+        - pattern: 'main'
           include: true
 
     scripts:
       - name: Initialize Keychain
         script: |
           keychain initialize
-
+          
       - name: Fetch Apple Signing Profiles
         script: |
-          app-store-connect fetch-signing-files "$BUNDLE_ID" \
-            --type IOS_APP_STORE \
-            --create
-
-      - name: Add Apple Certificates
+          app-store-connect fetch-signing-files "$BUNDLE_ID" --type IOS_APP_STORE --create
+          
+      - name: Install Web Dependencies & Build React App
         script: |
-          keychain add-certificates
-
+          cd frontend
+          npm install --force
+          npm run build
+          
+      - name: Sync React Web Assets into iOS Shell
+        script: |
+          cd frontend
+          npx cap sync ios
+          
       - name: Set Xcode Project Profile Configuration
         script: |
+          cd frontend/ios/App
+          pod install
           xcode-project use-profiles
-
-      - name: Verify iOS Project
-        script: |
-          echo "=== Repository ==="
-          ls -la
-
-          echo "=== Frontend ==="
-          ls -la "$CM_BUILD_DIR/frontend" || true
-
-          echo "=== Xcode Workspaces ==="
-          find "$CM_BUILD_DIR" -name "*.xcworkspace" -print
-
-          echo "=== Xcode Projects ==="
-          find "$CM_BUILD_DIR" -name "*.xcodeproj" -print
-
-      - name: Build Production IPA
+          
+      - name: Build Production .ipa Package
         script: |
           xcode-project build-ipa \
-            --workspace "$CM_BUILD_DIR/$XCODE_WORKSPACE" \
+            --workspace "$XCODE_WORKSPACE" \
             --scheme "$XCODE_SCHEME" \
             --configuration Release
 
     artifacts:
       - build/ios/ipa/*.ipa
-      - /tmp/xcodebuild_logs/*.log
 
     publishing:
       app_store_connect:
