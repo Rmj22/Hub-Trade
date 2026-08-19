@@ -9,7 +9,7 @@ workflows:
       groups:
         - apple_credentials # ⚠️ Make sure this has exactly 8 spaces of indentation
       vars:
-        APP_NAME: "Hub-Trade"
+        APP_NAME: "tradehub"
       xcode: latest
       cocoapods: default
 
@@ -34,8 +34,8 @@ workflows:
       - name: Build Production .ipa Package
         script: |
           xcode-project build-ipa \
-            --workspace "Hub-Trade.xcworkspace" \
-            --scheme "Hub-Trade" \
+            --workspace "tradehub.xcworkspace" \
+            --scheme "tradehub" \
             --configuration Release
 
     artifacts:
