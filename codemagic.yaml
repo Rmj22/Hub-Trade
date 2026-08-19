@@ -10,6 +10,8 @@ workflows:
       app_store_connect: default_app_store_connect # Must match the exact label name of your App Store Connect API Key integration
 
     environment: 
+         groups:
+        - apple_credentials #
       vars:
         APP_NAME: "Hub-Trade"
       xcode: latest
