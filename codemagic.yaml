@@ -26,7 +26,7 @@ workflows:
           
       - name: Fetch Apple Signing Profiles
         script: |
-          app-store-connect fetch-signing-files "com.yourcompany.Hub-Trade" --project-type IOS --create
+          app-store-connect fetch-signing-files "com.summitofficesolution.tradehub" --project-type IOS --create
           
       - name: Set Xcode Project Profile Configuration
         script: xcode-project use-profiles
