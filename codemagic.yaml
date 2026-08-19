@@ -7,11 +7,9 @@ workflows:
 
     # 👇 ADD THIS BLOCK TO FIX THE VALIDATION ERROR
     integrations:
-      app_store_connect: app_store_credentials # Must match the exact label name of your App Store Connect API Key integration
+      app_store_connect: default_app_store_connect # Must match the exact label name of your App Store Connect API Key integration
 
-    environment:
-      groups:
-        - apple_credentials 
+    environment: 
       vars:
         APP_NAME: "Hub-Trade"
       xcode: latest
@@ -29,7 +27,7 @@ workflows:
         script: keychain initialize
           
       - name: Fetch Apple Signing Profiles
-        script: app-store-connect fetch-signing-files "com.yourcompany.Hub-Trade" --project-type IOS --create
+        script: app-store-connect fetch-signing-files "com.SummitOfficeSolution.Hub-Trade" --project-type IOS --create
           
       - name: Set Xcode Project Profile Configuration
         script: xcode-project use-profiles
