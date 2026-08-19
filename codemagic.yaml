@@ -1,21 +1,17 @@
-# yaml-language-server: $schema=https://codemagic.io/codemagic-schema.json
-# The top-level workflows tag contains all your distinct build definitions
 workflows:
-  my-build-pipeline: # The unique ID for this specific workflow
+  my-build-pipeline:
     name: Production App Deployment
-    max_build_duration: 60 # Set maximum execution minutes (1 to 120)
+    max_build_duration: 60
     instance_type: mac_mini_m1 # Defines the cloud build machine hardware
 
-    # Environment settings, variables, and language runtimes
     environment:
       groups:
-        - apple_credentials # References secret groupings set in Codemagic UI
+        - apple_credentials 
       vars:
         APP_NAME: "Hub-Trade"
       xcode: latest
       cocoapods: default
 
-    # Continuous Integration rules to trigger builds automatically
     triggering:
       events:
         - push
@@ -23,12 +19,30 @@ workflows:
         - pattern: 'main'
           include: true
 
-    # Sequential command line actions executed on the virtual machine
+    # PASTE THE CODE HERE (Make sure "scripts:" aligns perfectly with "triggering:" above)
     scripts:
-      - name: Say Hello
+      - name: Initialize Keychain
+        script: keychain initialize
+          
+      - name: Fetch Apple Signing Profiles
+        script: app-store-connect fetch-signing-files "com.SummitOfficeSolution.Hub-Trade" --project-type IOS --create
+          
+      - name: Set Xcode Project Profile Configuration
+        script: xcode-project use-profiles
+          
+      - name: Build Production .ipa Package
         script: |
-          echo "Starting build process for $APP_NAME..."
+          xcode-project build-ipa \
+            --workspace "Hub-Trade.xcworkspace" \
+            --scheme "Hub-Trade" \
+            --configuration Release
 
-    # Local output formats to grab and collect when processing completes
+    # Instructs Codemagic to look for and capture the binary file
     artifacts:
       - build/ios/ipa/*.ipa
+
+    # Uploads the file automatically to App Store Connect / TestFlight
+    publishing:
+      app_store_connect:
+        auth: integration
+        submit_to_testflight: true
