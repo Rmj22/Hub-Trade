@@ -1,0 +1,44 @@
+{
+  "summary": "Comprehensive backend + frontend testing of the new Role Assignment, Data-Entry Ticket, and hidden Admin Control features. Wrote 16 pytest tests (all passing) in /app/backend/tests/test_new_features.py covering role CRUD + RBAC, ticket create/list scoping, admin endpoints and multi-tenant isolation. Frontend Playwright flows for Owner (Team page role selects, hidden self-remove, add-member modal with all 3 roles, data-entry ticket create, admin control table + status update) and non-super-admin redirect all pass. Owner sees 'Admin Control' nav link and can update ticket status/notes; a freshly created foreman does NOT see the nav link and is redirected from /admin-control-241 to /app.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "startup seed_admin", "issue": "seed_admin only restores is_superadmin and password_hash for the seeded ADMIN_EMAIL user, but does NOT restore role='owner'. If the super-admin's role is ever changed (e.g. demoted via PUT /api/team/{id}/role in a company that has another owner), the seed on next boot leaves them stuck as non-owner. Recommend adding `if existing.get('role') != 'owner': upd['role'] = 'owner'` in server.py ~line 773-780."},
+      {"endpoint": "PUT /api/team/{user_id}/role", "issue": "Self-demotion check only fires when owners <= 1. If a company has multiple owners, an owner CAN demote themselves. That is arguably correct per spec ('cannot demote themselves if they are the ONLY owner'), but combined with the seed issue above, demoting the super-admin owner permanently strips their owner role. Consider also blocking self-demotion for is_superadmin accounts."},
+      {"endpoint": "PUT /api/admin/data-entry-tickets/{id}", "issue": "No validation that the ticket_id exists — if an invalid/non-existent ObjectId string is passed, MongoDB update_one silently no-ops and then find_one returns None; response is returned as {} (or crashes if clean() is called on None). Non-superadmin 403 path works; but a superadmin sending a bad id gets a 500 (ObjectId format) or empty response. Suggest 404 handling."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "AdminControl (/admin-control-241)", "issues": ["Page uses its own top bar with 'Back to app' button but has no logout button or sidebar. That is fine, but note there is no persistent sign-out affordance while viewing the panel — user must click 'Back to app' first."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_new_features.py",
+    "/app/test_reports/pytest/new_features.xml"
+  ],
+  "action_items": [
+    "(Minor) In server.py seed_admin, also enforce role='owner' on the seeded ADMIN_EMAIL user so a demoted super-admin recovers on restart.",
+    "(Minor) In PUT /api/admin/data-entry-tickets/{id}, return 404 when the ticket does not exist rather than empty body or 500.",
+    "(Optional) Consider disallowing owners from demoting themselves when is_superadmin=True regardless of owner count."
+  ],
+  "critical_code_review_comments": [
+    "server.py seed_admin is not fully idempotent for role — see minor issue above.",
+    "Both /api/team/{id}/role and /api/team/{id} DELETE correctly enforce owner role and self-protection; multi-tenant scoping via company_id is enforced on every query. Good.",
+    "Data-entry ticket routes correctly scope by company_id and add company_name+created_by for admin view. Good.",
+    "AdminControl.js correctly checks user.is_superadmin and redirects otherwise; sidebar link in Layout.js is also gated on is_superadmin. Good."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_new_features.py (new)",
+    "/app/test_reports/pytest/new_features.xml (new junit report)"
+  ],
+  "success_rate": {"backend": "100% (16/16)", "frontend": "100% (all flows verified)"},
+  "test_credentials": "Owner/super-admin: robinjones335@gmail.com / BuildIt2026! (verified is_superadmin=true). Created runtime foreman accounts (foreman_ui_*, foreman_redirect_*) in Jones Construction Co. for redirect tests.",
+  "seed_data_creation": "Backend tests create TEST_ prefixed users, a second owner+company (TEST Other Co _{suffix}), and data-entry tickets. Frontend test created ~2 foreman accounts and 1 UI ticket. Nothing was permanently destructive.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "All new-feature endpoints and UI flows are green. If seed_admin is updated to restore role, re-run backend/tests/test_new_features.py (should stay green). One temporary regression happened during testing: initial test run demoted the seeded owner to foreman because a helper test created another owner in the same company; I restored role='owner' via MongoDB and rewrote the test to use a fresh second-company owner for the 'only owner' check. That MongoDB fix is already applied — Robin's role is back to owner + is_superadmin=true.",
+  "rca of the issue": "Two related design gaps in role-management + seed: (1) POST /api/team accepts role='owner', so a company can have multiple owners. (2) The self-demotion guard only fires when owners <= 1. (3) seed_admin does not enforce role='owner' on the ADMIN_EMAIL user on boot. Combined, if any second owner exists in Jones company, Robin can be demoted and never auto-recovers. Repro: as Robin, POST /api/team with role=owner (any email); then PUT /api/team/{robin_id}/role {role:'foreman'} -> 200 OK. Restart backend -> Robin still foreman (is_superadmin restored but role not). Mitigation: add role='owner' restoration to seed_admin, and/or block demotion of is_superadmin users."
+}

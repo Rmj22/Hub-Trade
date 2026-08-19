@@ -1,0 +1,147 @@
+{
+  "typography": {
+    "headings": {
+      "fontFamily": "Cabinet Grotesk, sans-serif",
+      "weights": ["300", "800"],
+      "tracking": "tracking-tight",
+      "usage": "Use for all H1-H4. Emphasize weight contrast (e.g., Light and ExtraBold side-by-side)."
+    },
+    "body": {
+      "fontFamily": "Satoshi, sans-serif",
+      "weights": ["400", "500", "600"],
+      "tracking": "tracking-normal",
+      "usage": "Use for body text, forms, tables, and dashboards."
+    },
+    "scale": {
+      "h1": "text-4xl sm:text-5xl lg:text-6xl clamp()",
+      "h2": "text-2xl sm:text-3xl lg:text-4xl",
+      "h3": "text-xl sm:text-2xl",
+      "body": "text-base sm:text-sm",
+      "labels": "text-xs tracking-[0.2em] uppercase"
+    }
+  },
+  "colors": {
+    "theme": "Dark/Light Toggle - The Performance Pro Archetype",
+    "light": {
+      "background": "#F7F7F6",
+      "card": "#FFFFFF",
+      "text": "#0A0A0A",
+      "primary": "#FF3B30",
+      "primaryForeground": "#FFFFFF",
+      "muted": "#E5E5E5",
+      "border": "#E5E5E5"
+    },
+    "dark": {
+      "background": "#0A0A0A",
+      "card": "#121212",
+      "text": "#FFFFFF",
+      "primary": "#D4FF00",
+      "primaryForeground": "#0A0A0A",
+      "muted": "#1F1F1F",
+      "border": "#262626"
+    },
+    "rules": [
+      "Use primary color (Blaze/Volt) sparingly for CTA, badges, and progress bars.",
+      "Never use pure black or pure white. Tint grays slightly.",
+      "Ensure APCA contrast minimums."
+    ]
+  },
+  "visual enhancers": {
+    "glassmorphism": "Use for sticky headers/navs: backdrop-blur-xl bg-white/70 (light) or bg-black/60 (dark), saturate-150, 1px subtle inner border.",
+    "neumorphism": "Do not use. Stick to flat cards with 1px borders.",
+    "textures": "Apply subtle SVG noise/grain over the marketing landing page hero.",
+    "borders": "Cardless or max 8px border-radius (rounded-md). Sharp, tactical aesthetic."
+  },
+  "grids": {
+    "marketing": "MODE A: TETRIS GRID. Asymmetrical col-spans (grid-cols-1 md:grid-cols-12), gap-8 to gap-12. Do not fill all cells perfectly, leave negative space.",
+    "dashboard": "MODE B: HIGH DENSITY. grid-cols-1 md:grid-cols-4. Tight gap-4. Every pixel utilized. h-full for stretching."
+  },
+  "layouts": {
+    "spacing": "Generous. Use p-6, p-8, p-12. Containers with borders MUST have internal padding.",
+    "alignment": "Mobile-first. Left-align most content. Optical alignment over geometric.",
+    "dashboard": "Sidebar nav (collapsible) + top header (glass). Content area dense and functional."
+  },
+  "motion": {
+    "hover": "Hover states must lighten primary colors, lift cards (-translate-y-1), and add subtle shadow.",
+    "transitions": "transition-transform, opacity. NEVER transition-all.",
+    "framer_motion": "Use for staggered list entrances, accordion expansions, and dialog appearances."
+  },
+  "accessibility": {
+    "contrast": "APCA minimum 4.5:1 for normal text, 3:1 for large/interactive.",
+    "focus": "focus:ring-2 focus:ring-primary focus:outline-none.",
+    "testing": "All interactive elements MUST have data-testid attributes (e.g., data-testid='login-submit-btn')."
+  },
+  "media": {
+    "icons": "Use @phosphor-icons/react for Duotone/bold weight, high-end feel.",
+    "images": "Use max-h-[80vh] on mobile to prevent blocking content. Apply bg-black/40 overlay on hero images if text is overlaid."
+  },
+  "3d libraries and steps": {
+    "library": "React Three Fiber (R3F)",
+    "usage": "Use ONLY on the marketing landing page (hero background or product abstraction). Dashboards must be 2D and performant.",
+    "steps": [
+      "yarn add @react-three/fiber @react-three/drei",
+      "Wrap 3D components in <Suspense>",
+      "Use <Environment> for realistic lighting."
+    ]
+  },
+  "image_urls": {
+    "hero_marketing": {
+      "url": "https://images.unsplash.com/photo-1697305592218-d5d0c1bab2e3?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDk1Nzh8MHwxfHNlYXJjaHwxfHxtb2Rlcm4lMjBjb25zdHJ1Y3Rpb24lMjB3b3JrZXIlMjB1c2luZyUyMHRhYmxldHxlbnwwfHx8fDE3ODU0Mzg4ODJ8MA&ixlib=rb-4.1.0&q=85",
+      "description": "Modern construction worker using tablet - great for hero background or main feature."
+    },
+    "foreman_avatar": {
+      "url": "https://images.unsplash.com/photo-1659353590852-7c986eb6fd26?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDk1Nzh8MHwxfHNlYXJjaHwzfHxtb2Rlcm4lMjBjb25zdHJ1Y3Rpb24lMjB3b3JrZXIlMjB1c2luZyUyMHRhYmxldHxlbnwwfHx8fDE3ODU0Mzg4ODJ8MA&ixlib=rb-4.1.0&q=85",
+      "description": "Construction worker in hard hat for avatar/profile placeholder."
+    },
+    "equipment": {
+      "url": "https://images.unsplash.com/photo-1580901369227-308f6f40bdeb?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1NTJ8MHwxfHNlYXJjaHwzfHxoZWF2eSUyMGNvbnN0cnVjdGlvbiUyMG1hY2hpbmVyeSUyMGV4Y2F2YXRvcnxlbnwwfHx8fDE3ODU0Mzg4ODJ8MA&ixlib=rb-4.1.0&q=85",
+      "description": "Yellow heavy excavator - use in Equipment Management dashboard."
+    },
+    "vehicles": {
+      "url": "https://images.unsplash.com/photo-1701637657912-9e23e32155d1?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA2MTJ8MHwxfHNlYXJjaHwzfHxjb25zdHJ1Y3Rpb24lMjBmbGVldCUyMHRydWNrfGVufDB8fHx8MTc4NTQzODg4Mnww&ixlib=rb-4.1.0&q=85",
+      "description": "Red semi truck - use in Vehicles Management dashboard."
+    },
+    "estimates": {
+      "url": "https://images.pexels.com/photos/4134179/pexels-photo-4134179.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+      "description": "Architectural blueprints - use for Estimates Builder visual context."
+    }
+  },
+  "component_path": {
+    "components": "src/components/ui",
+    "pages": "src/pages"
+  },
+  "instructions_to_main_agent": [
+    "Install and use @phosphor-icons/react",
+    "Implement light/dark mode toggle using standard Tailwind classes (dark: class).",
+    "Use Shadcn UI components but heavily customize borders (max rounded-md) and spacing.",
+    "Marketing Landing Page must be pure HTML/Tailwind, avoiding generic Shadcn card wrappers.",
+    "For Datepicker use Shadcn, NOT native <input type='date'>.",
+    "For Dashboards, ensure strict bento grid layouts without jagged bottoms.",
+    "Never center text universally, stick to left-aligned for data/dashboards.",
+    "Ensure 'data-testid' on all interactive elements.",
+    "Build the 3 Dashboards (Owner, Foreman, Employee) carefully factoring role-based access.",
+    "Do NOT add transition-all anywhere.",
+    "Delete App.css text-align: center if it exists."
+  ],
+  "UNIVERSAL GUIDELINES FOR MAIN AGENT": [
+    "Avoid generic, on-distribution UI slop. Produce high-end, tactile, deeply stylized designs.",
+    "Dark colors look good independently. NO dark color gradients.",
+    "Create depth via z-index hierarchy and glassmorphism (12-24px blur).",
+    "Use modern pill-shaped or sharp button styles with hover state changes.",
+    "Never use emoji characters as icons.",
+    "Use 2-3x more padding/spacing than standard Bootstrap/Tailwind tutorials.",
+    "Implement micro-animations on all interactive states.",
+    "All interactive elements MUST include data-testid attribute.",
+    "Never use placeholder image domains (via.placeholder.com). ALWAYS use provided image_urls.",
+    "For JS files, follow React/JSX conventions.",
+    "You have .js and .jsx files. Write components and code matching standard JSX functional component definitions.",
+    "CRITICAL: DO NOT use complete transparent background in header, overlays, or any surface that has content under it."
+  ],
+  "GENERAL UI UX DESIGN GUIDELINES": [
+    "Hierarchy over decoration: let typography and spacing define structure, not excessive borders or gradients.",
+    "Provide clear system feedback for all actions using toast notifications (e.g., via sonner).",
+    "Opt for optical alignment vs geometric alignment where visual balance feels off.",
+    "Support a frictionless mobile experience: target minimum 44x44px hit zones for touch actions.",
+    "Emphasize the primary task of the view, demoting secondary actions into dropdown menus or muted button styles."
+  ]
+}

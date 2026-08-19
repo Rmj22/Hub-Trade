@@ -1,0 +1,59 @@
+/* Hub Trade Companion — content script styles */
+#ht-companion-fab {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  z-index: 2147483646;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border: none;
+  border-radius: 999px;
+  background: #d4ff00;
+  color: #0a0a0a;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
+  transition: transform 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease;
+}
+#ht-companion-fab:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.34);
+}
+#ht-companion-fab:active {
+  transform: translateY(0);
+}
+#ht-companion-fab .ht-fab-plus {
+  font-size: 18px;
+  line-height: 1;
+  font-weight: 800;
+}
+
+.ht-companion-toast {
+  position: fixed;
+  right: 20px;
+  bottom: 74px;
+  z-index: 2147483647;
+  max-width: 280px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: #111;
+  color: #fff;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 13px;
+  font-weight: 500;
+  opacity: 0;
+  transform: translateY(8px);
+  transition: opacity 0.25s ease, transform 0.25s ease;
+  border-left: 3px solid #d4ff00;
+}
+.ht-companion-toast.ht-error {
+  border-left-color: #ff3b30;
+}
+.ht-companion-toast.ht-show {
+  opacity: 1;
+  transform: translateY(0);
+}
