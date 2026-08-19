@@ -1,4 +1,6 @@
+```yaml
 # yaml-language-server: $schema=https://codemagic.io
+
 workflows:
   my-build-pipeline:
     name: Production App Deployment
@@ -7,39 +9,77 @@ workflows:
 
     environment:
       groups:
-        - apple_credentials # ⚠️ Make sure this has exactly 8 spaces of indentation
+        - apple_credentials
+
       vars:
         APP_NAME: "tradehub"
+        BUNDLE_ID: "com.summitofficesolution.tradehub"
+        XCODE_WORKSPACE: "frontend/tradehub.xcworkspace"
+        XCODE_SCHEME: "tradehub"
+
       xcode: latest
       cocoapods: default
 
     triggering:
       events:
         - push
+
       branch_patterns:
-        - pattern: 'main'
+        - pattern: "main"
           include: true
 
     scripts:
+
+      # Initialize temporary keychain for signing
       - name: Initialize Keychain
-        script: keychain initialize
-          
+        script: |
+          keychain initialize
+
+      # Fetch App Store / TestFlight signing certificate and provisioning profile
       - name: Fetch Apple Signing Profiles
         script: |
-          app-store-connect fetch-signing-files "com.summitofficesolution.tradehub" --project-type IOS --create
-          
+          app-store-connect fetch-signing-files "$BUNDLE_ID" \
+            --type IOS_APP_STORE \
+            --create
+
+      # Add the downloaded Apple certificates to the keychain
+      - name: Add Apple Certificates
+        script: |
+          keychain add-certificates
+
+      # Apply provisioning profiles to the Xcode project
       - name: Set Xcode Project Profile Configuration
-        script: xcode-project use-profiles
-          
+        script: |
+          xcode-project use-profiles
+
+      # Show the iOS project structure for troubleshooting
+      - name: Verify iOS Project
+        script: |
+          echo "=== Repository ==="
+          ls -la
+
+          echo "=== Frontend ==="
+          ls -la "$CM_BUILD_DIR/frontend" || true
+
+          echo "=== Xcode Workspaces ==="
+          find "$CM_BUILD_DIR" -name "*.xcworkspace" -print
+
+          echo "=== Xcode Projects ==="
+          find "$CM_BUILD_DIR" -name "*.xcodeproj" -print
+
+      # Build signed IPA
       - name: Build Production .ipa Package
         script: |
           xcode-project build-ipa \
-            --workspace "tradehub.xcworkspace" \
-            --scheme "tradehub" \
+            --workspace "$CM_BUILD_DIR/$XCODE_WORKSPACE" \
+            --scheme "$XCODE_SCHEME" \
             --configuration Release
 
     artifacts:
       - build/ios/ipa/*.ipa
+      - /tmp/xcodebuild_logs/*.log
+      - $HOME/Library/Developer/Xcode/DerivedData/**/Build/**/*.app
+      - $HOME/Library/Developer/Xcode/DerivedData/**/Build/**/*.dSYM
 
     publishing:
       app_store_connect:
@@ -47,3 +87,4 @@ workflows:
         key_id: $APP_STORE_CONNECT_KEY_IDENTIFIER
         issuer_id: $APP_STORE_CONNECT_ISSUER_ID
         submit_to_testflight: true
+```
