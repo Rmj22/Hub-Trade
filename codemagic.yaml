@@ -9,7 +9,7 @@ workflows:
       groups:
         - apple_credentials
       vars:
-        XCODE_WORKSPACE: "frontend/ios/App/App.xcworkspace"
+        XCODE_WORKSPACE: "frontend/ios/App/App.xcodeproj"
         XCODE_SCHEME: "App"
         BUNDLE_ID: "com.summitofficesolution.tradehub"
       xcode: latest
@@ -52,7 +52,7 @@ workflows:
       - name: Build Production .ipa Package
         script: |
           xcode-project build-ipa \
-            --workspace "$XCODE_WORKSPACE" \
+            --workspace "$XCODE_PROJECT" \
             --scheme "$XCODE_SCHEME" \
             --configuration Release
 
