@@ -51,15 +51,14 @@ workflows:
           
       - name: Build Production .ipa Package
         script: |
-          xcodebuild \
-            -project "$XCODE_PROJECT" \
-            -scheme "$XCODE_SCHEME" \
-            -configuration Release \
-            -archivePath "$CM_BUILD_DIR/build/ios/archive/App.xcarchive" \
-            archive
+          xcode-project build-ipa \
+            --workspace "frontend/ios/App/App.xcworkspace" \
+            --scheme "App" \
+            --archive-path "build/ios/App.xcarchive"\
+            
 
     artifacts:
-      - $CM_BUILD_OUTPUT_DIR/*.ipa
+      - build/ios/ipa/*.ipa
 
     publishing:
       app_store_connect:
