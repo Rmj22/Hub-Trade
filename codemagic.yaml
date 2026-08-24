@@ -49,14 +49,15 @@ workflows:
           pod install
           xcode-project use-profiles
           
-      - name: Build Production .ipa Package
+       - name: Build Production .ipa Package
         script: |
           xcodebuild \
-            -workspace "ios/App.xcodeproj" \
-            -scheme "APP" \
-            -configuration Release\
-            -archivePath $CM_BUILD_DIR/build/ios/archive/App.xcarchive \
-             archive
+            -project "ios/App/App.xcodeproj" \
+            -scheme "App" \
+            -configuration Release \
+            -archivePath "$CM_BUILD_DIR/build/ios/archive/App.xcarchive" \
+            archive
+
 
     artifacts:
       - build/ios/ipa/*.ipa
