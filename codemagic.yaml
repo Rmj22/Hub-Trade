@@ -9,7 +9,8 @@ workflows:
       groups:
         - apple_credentials
       vars:
-        XCODE_WORKSPACE: "frontend/ios/App/App.xcodeproj"
+        XCODE_WORKSPACE: "frontend/ios/App/App.xcworkspace"
+        XCODE_PROJECT: "frontend/ios/App/App.xcodeproj"
         XCODE_SCHEME: "App"
         BUNDLE_ID: "com.summitofficesolution.tradehub"
       xcode: latest
@@ -36,7 +37,6 @@ workflows:
           cd frontend
           npm install --force
           npm run build
-          CI=false npm run build
 
       - name: Sync React Web Assets into iOS Shell
         script: |
@@ -49,15 +49,14 @@ workflows:
           pod install
           xcode-project use-profiles
           
-       - name: Build Production .ipa Package
+      - name: Build Production .ipa Package
         script: |
           xcodebuild \
-            -project "ios/App/App.xcodeproj" \
-            -scheme "App" \
+            -project "$XCODE_PROJECT" \
+            -scheme "$XCODE_SCHEME" \
             -configuration Release \
             -archivePath "$CM_BUILD_DIR/build/ios/archive/App.xcarchive" \
             archive
-
 
     artifacts:
       - build/ios/ipa/*.ipa
