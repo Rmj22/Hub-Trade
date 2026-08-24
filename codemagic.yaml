@@ -59,7 +59,7 @@ workflows:
             archive
 
     artifacts:
-      - build/ios/ipa/*.ipa
+      - "**/*.ipa"
 
     publishing:
       app_store_connect:
