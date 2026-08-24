@@ -54,7 +54,8 @@ workflows:
           xcode-project build-ipa \
             --workspace "frontend/ios/App/App.xcworkspace" \
             --scheme "App" \
-            --archive-path "build/ios/App.xcarchive"\
+            --configuration Release \
+            --ipa-directory "build/ios/ipa"
             
 
     artifacts:
