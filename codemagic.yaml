@@ -1,4 +1,6 @@
+```yaml
 # yaml-language-server: $schema=https://codemagic.io
+
 workflows:
   my-build-pipeline:
     name: Production App Deployment
@@ -8,30 +10,36 @@ workflows:
     environment:
       groups:
         - apple_credentials
+
       vars:
         XCODE_WORKSPACE: "frontend/ios/App/App.xcworkspace"
         XCODE_PROJECT: "frontend/ios/App/App.xcodeproj"
         XCODE_SCHEME: "App"
         BUNDLE_ID: "com.summitofficesolution.tradehub"
+
       xcode: latest
       cocoapods: default
 
     triggering:
       events:
         - push
+
       branch_patterns:
-        - pattern: 'main'
+        - pattern: "main"
           include: true
 
     scripts:
+
       - name: Initialize Keychain
         script: |
           keychain initialize
-          
+
       - name: Fetch Apple Signing Profiles
         script: |
-          app-store-connect fetch-signing-files "$BUNDLE_ID" --type IOS_APP_STORE --create
-          
+          app-store-connect fetch-signing-files "$BUNDLE_ID" \
+            --type IOS_APP_STORE \
+            --create
+
       - name: Install Web Dependencies & Build React App
         script: |
           cd frontend
@@ -42,21 +50,24 @@ workflows:
         script: |
           cd frontend
           npx cap sync ios
-          
+
       - name: Set Xcode Project Profile Configuration
         script: |
           cd frontend/ios/App
           pod install
           xcode-project use-profiles
-          
+
+      - name: Check xcode-project CLI
+        script: |
+          xcode-project build-ipa --help
+
       - name: Build Production .ipa Package
         script: |
           xcode-project build-ipa \
-            -project "frontend/ios/App/App.xcodeproj" \
-            -scheme "App" \
-            -config "Release" \
-            -ipa-directory "build/ios/ipa"
-            
+            --project "$XCODE_PROJECT" \
+            --scheme "$XCODE_SCHEME" \
+            --configuration Release \
+            --ipa-directory build/ios/ipa
 
     artifacts:
       - build/ios/ipa/*.ipa
@@ -67,3 +78,4 @@ workflows:
         key_id: $APP_STORE_CONNECT_KEY_IDENTIFIER
         issuer_id: $APP_STORE_CONNECT_ISSUER_ID
         submit_to_testflight: true
+```
