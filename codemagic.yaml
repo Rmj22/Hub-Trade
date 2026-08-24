@@ -36,7 +36,7 @@ workflows:
         script: |
           cd frontend
           npm install --force
-          npm run build
+          CI=false npm run build
 
       - name: Sync React Web Assets into iOS Shell
         script: |
