@@ -51,7 +51,7 @@ workflows:
           
       - name: Build Production .ipa Package
         script: |
-          xcode-project build-ipa \
+          xcodebuild \
             -workspace "frontend/ios/APP/App.xcodeproj" \
             -scheme "APP" \
             -configuration Release\
