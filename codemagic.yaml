@@ -52,9 +52,11 @@ workflows:
       - name: Build Production .ipa Package
         script: |
           xcode-project build-ipa \
-            --workspace "frontend/ios/APP/App.xcodeproj" \
-            --scheme "APP" \
-            --configuration Release
+            -workspace "frontend/ios/APP/App.xcodeproj" \
+            -scheme "APP" \
+            -configuration Release\
+            -archivePath $CM_BUILD_DIR/build/ios/archive/App.xcarchive \
+             archive
 
     artifacts:
       - build/ios/ipa/*.ipa
