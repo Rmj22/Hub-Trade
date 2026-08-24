@@ -54,7 +54,7 @@ workflows:
           xcode-project build-ipa \
             -workspace "frontend/ios/App/App.xcodeproj" \
             -scheme "App" \
-            -configuration Release \
+            -config "Release" \
             -ipa-directory "build/ios/ipa"
             
 
