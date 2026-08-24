@@ -59,7 +59,7 @@ workflows:
             archive
 
     artifacts:
-      - "**/*.ipa"
+      - $CM_BUILD_OUTPUT_DIR/*.ipa
 
     publishing:
       app_store_connect:
