@@ -52,7 +52,7 @@ workflows:
       - name: Build Production .ipa Package
         script: |
           xcodebuild \
-            -workspace "frontend/ios/APP/App.xcworkspace" \
+            -workspace "ios/APP/App.xcworkspace" \
             -scheme "APP" \
             -configuration Release\
             -archivePath $CM_BUILD_DIR/build/ios/archive/App.xcarchive \
