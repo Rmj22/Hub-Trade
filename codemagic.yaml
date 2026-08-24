@@ -52,8 +52,8 @@ workflows:
       - name: Build Production .ipa Package
         script: |
           xcode-project build-ipa \
-            --workspace "frontend/ios/App/Hub-Trade.xcworkspace" \
-            --scheme "Hub-Trade" \
+            --workspace "frontend/ios/App/App.xcodeproj" \
+            --scheme "App" \
             --configuration Release \
             --ipa-directory "build/ios/ipa"
             
