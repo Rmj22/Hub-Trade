@@ -63,16 +63,19 @@ scripts:
 
   - name: Build Production .ipa Package
     script: |
-      cd "$CM_BUILD_DIR"
       xcode-project build-ipa \
-        --workspace "$XCODE_WORKSPACE" \
-        --scheme "$XCODE_SCHEME"
+        --project "frontend/ios/App/App.xcodeproj" \
+        --scheme "App" \
+        --config "Release" \
+        --export-options-plist "frontend/ios/App/ExpotOptions.plist" \
+        --ipa-directory "build/ios/ipa"
 
 artifacts:
   - build/ios/ipa/*.ipa
 
 publishing:
   app_store_connect:
+    auth: integration
     api_key: $APP_STORE_CONNECT_PRIVATE_KEY
     key_id: $APP_STORE_CONNECT_KEY_IDENTIFIER
     issuer_id: $APP_STORE_CONNECT_ISSUER_ID
