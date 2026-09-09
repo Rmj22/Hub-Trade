@@ -2,102 +2,56 @@ name: Build iOS IPA
 
 on:
   workflow_dispatch:
-    inputs:
-      target:
-        description: "What to build"
-        type: choice
-        default: both
-        options: [app, extension, both]
-      upload:
-        description: "Upload to TestFlight"
-        type: boolean
-        default: true
-
-env:
-  TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
 
 jobs:
-  app:
-    if: inputs.target == 'app' || inputs.target == 'both'
-    runs-on: macos-14
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with: { node-version: 20 }
-      - uses: maxim-lobanov/setup-xcode@v1
-        with: { xcode-version: latest-stable }
-      - name: Install App Store Connect API key
-        run: |
-          mkdir -p ~/private_keys
-          echo "${{ secrets.ASC_API_KEY_P8 }}" > ~/private_keys/AuthKey_${{ secrets.ASC_KEY_ID }}.p8
-      - name: Build Hub Trade app .ipa
-        working-directory: ios-app
-        run: |
-          sed -i '' "s#https://YOUR-DEPLOYED-HUB-TRADE-URL#${{ secrets.HUB_TRADE_URL }}#" capacitor.config.json
-          npm install
-          npx cap add ios
-          npx cap sync ios
-          mkdir -p build
-          sed "s/YOUR_TEAM_ID/$TEAM_ID/" ExportOptions.plist > build/ExportOptions.plist
-          xcodebuild -workspace ios/App/App.xcworkspace -scheme App -configuration Release \
-            -destination 'generic/platform=iOS' -archivePath build/HubTrade.xcarchive \
-            DEVELOPMENT_TEAM="$TEAM_ID" PRODUCT_BUNDLE_IDENTIFIER=com.summitofficesolution.tradehub \
-            CODE_SIGN_STYLE=Automatic -allowProvisioningUpdates \
-            -authenticationKeyPath ~/private_keys/AuthKey_${{ secrets.ASC_KEY_ID }}.p8 \
-            -authenticationKeyID ${{ secrets.ASC_KEY_ID }} -authenticationKeyIssuerID ${{ secrets.ASC_ISSUER_ID }} archive
-          xcodebuild -exportArchive -archivePath build/HubTrade.xcarchive \
-            -exportOptionsPlist build/ExportOptions.plist -exportPath build/ipa -allowProvisioningUpdates \
-            -authenticationKeyPath ~/private_keys/AuthKey_${{ secrets.ASC_KEY_ID }}.p8 \
-            -authenticationKeyID ${{ secrets.ASC_KEY_ID }} -authenticationKeyIssuerID ${{ secrets.ASC_ISSUER_ID }}
-      - uses: actions/upload-artifact@v4
-        with: { name: HubTrade-app-ipa, path: ios-app/build/ipa/*.ipa }
-      - name: Upload to TestFlight
-        if: inputs.upload
-        run: |
-          xcrun altool --upload-app -f ios-app/build/ipa/*.ipa -t ios \
-            --apiKey ${{ secrets.ASC_KEY_ID }} --apiIssuer ${{ secrets.ASC_ISSUER_ID }}
+  build-ios:
+    name: Build iOS IPA
+    runs-on: macos-latest
 
-  extension:
-    if: inputs.target == 'extension' || inputs.target == 'both'
-    runs-on: macos-14
     steps:
-      - uses: actions/checkout@v4
-      - uses: maxim-lobanov/setup-xcode@v1
-        with: { xcode-version: latest-stable }
-      - name: Install App Store Connect API key
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Select Xcode
         run: |
-          mkdir -p ~/private_keys
-          echo "${{ secrets.ASC_API_KEY_P8 }}" > ~/private_keys/AuthKey_${{ secrets.ASC_KEY_ID }}.p8
-      - name: Build Safari extension .ipa
-        working-directory: safari-extension
+          sudo xcode-select -s /Applications/Xcode.app
+
+      - name: Show Xcode version
+        run: xcodebuild -version
+
+      - name: Install CocoaPods
         run: |
-          xcrun safari-web-extension-converter . --project-location xcode --app-name "Hub Trade" \
-            --bundle-identifier com.summitofficesolution.tradehub.safari --ios-only --no-open --force --copy-resources
-          bash scripts/install-appicon.sh "xcode/Hub Trade" || true
-          mkdir -p build
-          cat > build/ExportOptions.plist <<EOF
-          <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-          <plist version="1.0"><dict>
-            <key>method</key><string>app-store-connect</string>
-            <key>teamID</key><string>$TEAM_ID</string>
-            <key>signingStyle</key><string>automatic</string>
-            <key>destination</key><string>export</string>
-          </dict></plist>
-          EOF
-          xcodebuild -project "xcode/Hub Trade/Hub Trade.xcodeproj" -scheme "Hub Trade (iOS)" -configuration Release \
-            -destination 'generic/platform=iOS' -archivePath build/HubTradeExt.xcarchive \
-            DEVELOPMENT_TEAM="$TEAM_ID" CODE_SIGN_STYLE=Automatic -allowProvisioningUpdates \
-            -authenticationKeyPath ~/private_keys/AuthKey_${{ secrets.ASC_KEY_ID }}.p8 \
-            -authenticationKeyID ${{ secrets.ASC_KEY_ID }} -authenticationKeyIssuerID ${{ secrets.ASC_ISSUER_ID }} archive
-          xcodebuild -exportArchive -archivePath build/HubTradeExt.xcarchive \
-            -exportOptionsPlist build/ExportOptions.plist -exportPath build/ipa -allowProvisioningUpdates \
-            -authenticationKeyPath ~/private_keys/AuthKey_${{ secrets.ASC_KEY_ID }}.p8 \
-            -authenticationKeyID ${{ secrets.ASC_KEY_ID }} -authenticationKeyIssuerID ${{ secrets.ASC_ISSUER_ID }}
-      - uses: actions/upload-artifact@v4
-        with: { name: HubTrade-extension-ipa, path: safari-extension/build/ipa/*.ipa }
-      - name: Upload to TestFlight
-        if: inputs.upload
+          if [ -f "frontend/ios/Podfile" ]; then
+            cd frontend/ios
+            pod install
+          fi
+
+      - name: Build archive
         run: |
-          xcrun altool --upload-app -f safari-extension/build/ipa/*.ipa -t ios \
-            --apiKey ${{ secrets.ASC_KEY_ID }} --apiIssuer ${{ secrets.ASC_ISSUER_ID }}
+          cd frontend/ios
+
+          xcodebuild \
+  -workspace ios/App/App.xcworkspace \
+  -scheme App \
+  -configuration Release \
+  -archivePath "$RUNNER_TEMP/App.xcarchive" \
+  -authenticationKeyPath "$RUNNER_TEMP/AuthKey_${{ secrets.APPLE_KEY_ID }}.p8" \
+  -authenticationKeyID "${{ secrets.APPLE_KEY_ID }}" \
+  -authenticationKeyIssuerID "${{ secrets.APPLE_ISSUER_ID }}" \
+  archive
+
+      - name: Export IPA
+        run: |
+          cd frontend/ios
+
+          xcodebuild \
+            -exportArchive \
+            -archivePath "$RUNNER_TEMP/App.xcarchive" \
+            -exportPath "$RUNNER_TEMP/export" \
+            -exportOptionsPlist ExportOptions.plist
+
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-ipa
+          path: ${{ runner.temp }}/export/*.ipa
