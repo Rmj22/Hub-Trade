@@ -19,12 +19,25 @@ jobs:
       - name: Show Xcode version
         run: xcodebuild -version
 
+      - name: Install Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 20
+
       - name: Install CocoaPods
         run: |
-          if [ -f "frontend/ios/Podfile" ]; then
-            cd frontend/ios
-            pod install
-          fi
+          sudo gem install cocoapods
+
+      - name: Install iOS dependencies
+        run: |
+          cd ios-app
+          npm install
+
+      - name: Create iOS project
+        run: |
+          cd ios-app
+          npx cap add ios
+          npx cap sync ios
 
       - name: Create App Store Connect API key
         run: |
@@ -33,28 +46,41 @@ jobs:
 
       - name: Build archive
         run: |
-          cd frontend/ios
+          cd ios-app
 
           xcodebuild \
-            -workspace App/App.xcworkspace \
+            -workspace ios/App/App.xcworkspace \
             -scheme App \
             -configuration Release \
-            -sdk iphoneos \
-            -archivePath "$RUNNER_TEMP/App.xcarchive" \
+            -destination 'generic/platform=iOS' \
+            -archivePath "$RUNNER_TEMP/HubTrade.xcarchive" \
+            DEVELOPMENT_TEAM="${{ secrets.APPLE_TEAM_ID }}" \
+            PRODUCT_BUNDLE_IDENTIFIER="com.summitofficesolution.tradehub" \
             -authenticationKeyPath "$RUNNER_TEMP/AuthKey_${{ secrets.APPLE_KEY_ID }}.p8" \
             -authenticationKeyID "${{ secrets.APPLE_KEY_ID }}" \
             -authenticationKeyIssuerID "${{ secrets.APPLE_ISSUER_ID }}" \
+            -allowProvisioningUpdates \
             archive
+
+      - name: Create ExportOptions.plist
+        run: |
+          cd ios-app
+
+          sed "s/YOUR_TEAM_ID/${{ secrets.APPLE_TEAM_ID }}/" \
+            ExportOptions.plist > "$RUNNER_TEMP/ExportOptions.plist"
 
       - name: Export IPA
         run: |
-          cd frontend/ios
+          cd ios-app
+
+          mkdir -p "$RUNNER_TEMP/export"
 
           xcodebuild \
             -exportArchive \
-            -archivePath "$RUNNER_TEMP/App.xcarchive" \
+            -archivePath "$RUNNER_TEMP/HubTrade.xcarchive" \
+            -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" \
             -exportPath "$RUNNER_TEMP/export" \
-            -exportOptionsPlist App/ExportOptions.plist
+            -allowProvisioningUpdates
 
       - name: Upload IPA
         uses: actions/upload-artifact@v4
