@@ -7,8 +7,8 @@ import requests
 BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "https://trade-hub-910.preview.emergentagent.com").rstrip("/")
 API = f"{BASE_URL}/api"
 
-OWNER_EMAIL = "robinjones335@gmail.com"
-OWNER_PASSWORD = "BuildIt2026!"
+OWNER_EMAIL = os.environ.get("TEST_OWNER_EMAIL", "robinjones335@gmail.com")
+OWNER_PASSWORD = os.environ["TEST_OWNER_PASSWORD"]
 
 
 @pytest.fixture(scope="module")
@@ -22,7 +22,7 @@ def owner():
     r = s.post(f"{API}/auth/login", json={"email": OWNER_EMAIL, "password": OWNER_PASSWORD})
     assert r.status_code == 200, r.text
     me = s.get(f"{API}/auth/me").json()
-    assert me.get("is_superadmin") is True
+    assert me.get("is_superadmin") == True
     return {"session": s, "me": me}
 
 
@@ -88,7 +88,7 @@ class TestNotifications:
         latest = after[0]
         assert latest["ticket_id"] == tid
         assert "TEST notif ticket" in latest["message"]
-        assert latest["read"] is False
+        assert latest["read"] == False
         assert latest["company_id"] == owner["me"]["company_id"]
         # message references done + note added
         assert "done" in latest["message"] and "note" in latest["message"]
@@ -140,7 +140,7 @@ class TestNotifications:
         assert d1["unread_notifications"] == 0
         # all listed items are now read
         lst = owner["session"].get(f"{API}/notifications").json()
-        assert all(n["read"] is True for n in lst)
+        assert all(n["read"] == True for n in lst)
 
     def test_mark_single_read(self, owner):
         c = owner["session"].post(f"{API}/data-entry-tickets", json={
@@ -150,12 +150,12 @@ class TestNotifications:
             "status": "done"})
         lst = owner["session"].get(f"{API}/notifications").json()
         nid = lst[0]["id"]
-        assert lst[0]["read"] is False
+        assert lst[0]["read"] == False
         r = owner["session"].post(f"{API}/notifications/{nid}/read")
         assert r.status_code == 200
         lst2 = owner["session"].get(f"{API}/notifications").json()
         target = next(n for n in lst2 if n["id"] == nid)
-        assert target["read"] is True
+        assert target["read"] == True
 
     def test_notification_company_scoping(self, owner, other_company):
         # trigger a notification in owner's company

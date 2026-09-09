@@ -509,45 +509,46 @@ async def post_message(req: MessageReq, user: dict = Depends(get_current_user)):
 
 
 # ---------- Dashboard & reports ----------
-@api.get("/dashboard")
-async def dashboard(user: dict = Depends(get_current_user)):
-    cid = user["company_id"]
-    jobs = await db.jobs.find({"company_id": cid}).to_list(1000)
-    active_jobs = [j for j in jobs if j.get("status") == "active"]
-    behind_jobs = [j for j in jobs if j.get("status") == "behind"]
-    completed_jobs = [j for j in jobs if j.get("status") == "completed"]
-    active_tcs = await db.timecards.find({"company_id": cid, "clock_out": None}, {"employee_id": 1}).to_list(1000)
-    vehicles = await db.vehicles.find({"company_id": cid}, {"status": 1}).to_list(1000)
-    equipment = await db.equipment.find({"company_id": cid}, {"status": 1}).to_list(1000)
-    estimates = await db.estimates.find({"company_id": cid}, {"status": 1}).to_list(1000)
-    employees = await db.employees.find({"company_id": cid}, {"_id": 1}).to_list(1000)
+async def _count(coll, cid: str, **extra) -> int:
+    return await db[coll].count_documents({"company_id": cid, **extra})
+
+
+async def _data_entry_summary(cid: str) -> dict:
     tickets = await db.data_entry_tickets.find({"company_id": cid}).to_list(1000)
-    comp = await db.companies.find_one({"_id": ObjectId(cid)})
-    plan = PLAN_LIMITS.get((comp or {}).get("plan") or "", {})
-    data_hours = plan.get("data_hours", 0)
+    comp = await db.companies.find_one({"_id": ObjectId(cid)}, {"plan": 1})
+    data_hours = PLAN_LIMITS.get((comp or {}).get("plan") or "", {}).get("data_hours", 0)
     used = sum(t.get("hours_requested", 0) for t in tickets)
-    recent_updates = sorted(
+    recent = sorted(
         [t for t in tickets if t.get("updated_at") and (t.get("admin_notes") or t.get("status") != "open")],
         key=lambda t: t["updated_at"], reverse=True)[:5]
-    unread = await db.notifications.count_documents({"company_id": cid, "read": False})
     return {
-        "active_jobs": len(active_jobs),
-        "jobs_behind": len(behind_jobs),
-        "completed_jobs": len(completed_jobs),
-        "clocked_in": len(active_tcs),
-        "clocked_in_ids": [t["employee_id"] for t in active_tcs],
-        "vehicles_in_use": len([v for v in vehicles if v.get("status") == "in-use"]),
-        "equipment_assigned": len([e for e in equipment if e.get("status") == "assigned"]),
-        "total_vehicles": len(vehicles),
-        "total_equipment": len(equipment),
-        "total_employees": len(employees),
-        "upcoming_estimates": len([e for e in estimates if e.get("status") == "draft"]),
-        "active_jobs_list": [clean(j) for j in active_jobs[:6]],
         "data_hours_total": data_hours,
         "data_hours_used": round(used, 1),
         "data_hours_remaining": round(max(data_hours - used, 0), 1),
-        "unread_notifications": unread,
-        "recent_ticket_updates": [clean(t) for t in recent_updates],
+        "recent_ticket_updates": [clean(t) for t in recent],
+    }
+
+
+@api.get("/dashboard")
+async def dashboard(user: dict = Depends(get_current_user)):
+    cid = user["company_id"]
+    active_jobs = await db.jobs.find({"company_id": cid, "status": "active"}).sort("_id", -1).to_list(6)
+    active_tcs = await db.timecards.find({"company_id": cid, "clock_out": None}, {"employee_id": 1}).to_list(1000)
+    return {
+        "active_jobs": await _count("jobs", cid, status="active"),
+        "jobs_behind": await _count("jobs", cid, status="behind"),
+        "completed_jobs": await _count("jobs", cid, status="completed"),
+        "clocked_in": len(active_tcs),
+        "clocked_in_ids": [t["employee_id"] for t in active_tcs],
+        "vehicles_in_use": await _count("vehicles", cid, status="in-use"),
+        "equipment_assigned": await _count("equipment", cid, status="assigned"),
+        "total_vehicles": await _count("vehicles", cid),
+        "total_equipment": await _count("equipment", cid),
+        "total_employees": await _count("employees", cid),
+        "upcoming_estimates": await _count("estimates", cid, status="draft"),
+        "active_jobs_list": [clean(j) for j in active_jobs],
+        "unread_notifications": await _count("notifications", cid, read=False),
+        **(await _data_entry_summary(cid)),
     }
 
 
@@ -555,32 +556,31 @@ async def dashboard(user: dict = Depends(get_current_user)):
 async def weekly_report(user: dict = Depends(get_current_user)):
     cid = user["company_id"]
     week_ago = datetime.now(timezone.utc) - timedelta(days=7)
-    tcs = await db.timecards.find({"company_id": cid, "created_at": {"$gte": week_ago.isoformat()}}, {"clock_out": 1, "created_at": 1, "hours": 1, "employee_id": 1}).to_list(2000)
-    labor_hours = 0.0
-    for t in tcs:
-        if t.get("clock_out") and t.get("created_at"):
-            try:
-                if datetime.fromisoformat(t["created_at"]) >= week_ago:
-                    labor_hours += t.get("hours", 0)
-            except Exception:
-                pass
-    jobs = await db.jobs.find({"company_id": cid}, {"status": 1, "material_cost": 1, "onsite_purchases": 1}).to_list(1000)
-    vehicles = await db.vehicles.find({"company_id": cid}, {"hours_used": 1}).to_list(1000)
-    equipment = await db.equipment.find({"company_id": cid}, {"hours_used": 1}).to_list(1000)
-    employees = await db.employees.find({"company_id": cid}, {"hourly_rate": 1}).to_list(1000)
-    labor_cost = 0.0
-    emp_map = {str(e["_id"]): e.get("hourly_rate", 0) for e in employees}
-    for t in tcs:
-        if t.get("clock_out"):
-            labor_cost += t.get("hours", 0) * emp_map.get(t.get("employee_id"), 0)
+    tcs = await db.timecards.find(
+        {"company_id": cid, "clock_out": {"$ne": None}, "created_at": {"$gte": week_ago.isoformat()}},
+        {"hours": 1, "employee_id": 1}).to_list(2000)
+    emp_map = await _hourly_rates(cid)
+    labor_hours = sum(t.get("hours", 0) for t in tcs)
+    labor_cost = sum(t.get("hours", 0) * emp_map.get(t.get("employee_id"), 0) for t in tcs)
+    jobs = await db.jobs.find({"company_id": cid}, {"material_cost": 1, "onsite_purchases": 1}).to_list(1000)
     return {
         "labor_hours": round(labor_hours, 1),
         "labor_cost": round(labor_cost, 2),
-        "equipment_hours": round(sum(e.get("hours_used", 0) for e in equipment), 1),
-        "vehicle_hours": round(sum(v.get("hours_used", 0) for v in vehicles), 1),
-        "completed_jobs": len([j for j in jobs if j.get("status") == "completed"]),
+        "equipment_hours": round(await _sum_field("equipment", cid, "hours_used"), 1),
+        "vehicle_hours": round(await _sum_field("vehicles", cid, "hours_used"), 1),
+        "completed_jobs": await _count("jobs", cid, status="completed"),
         "material_cost": round(sum(j.get("material_cost", 0) + j.get("onsite_purchases", 0) for j in jobs), 2),
     }
+
+
+async def _hourly_rates(cid: str) -> dict:
+    employees = await db.employees.find({"company_id": cid}, {"hourly_rate": 1}).to_list(1000)
+    return {str(e["_id"]): e.get("hourly_rate", 0) for e in employees}
+
+
+async def _sum_field(coll, cid: str, field: str) -> float:
+    docs = await db[coll].find({"company_id": cid}, {field: 1}).to_list(1000)
+    return float(sum(d.get(field, 0) or 0 for d in docs))
 
 
 @api.get("/jobs/{job_id}/cost")
@@ -589,8 +589,7 @@ async def job_cost(job_id: str, user: dict = Depends(get_current_user)):
     if not job:
         raise HTTPException(404, "Job not found")
     tcs = await db.timecards.find({"company_id": user["company_id"], "job_id": job_id, "clock_out": {"$ne": None}}).to_list(1000)
-    employees = await db.employees.find({"company_id": user["company_id"]}, {"hourly_rate": 1}).to_list(1000)
-    emp_map = {str(e["_id"]): e.get("hourly_rate", 0) for e in employees}
+    emp_map = await _hourly_rates(user["company_id"])
     labor_hours = sum(t.get("hours", 0) for t in tcs)
     labor_cost = sum(t.get("hours", 0) * emp_map.get(t.get("employee_id"), 0) for t in tcs)
     material = job.get("material_cost", 0)

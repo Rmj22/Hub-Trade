@@ -9,8 +9,8 @@ import requests
 BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "https://trade-hub-910.preview.emergentagent.com").rstrip("/")
 API = f"{BASE_URL}/api"
 
-OWNER_EMAIL = "robinjones335@gmail.com"
-OWNER_PASSWORD = "BuildIt2026!"
+OWNER_EMAIL = os.environ.get("TEST_OWNER_EMAIL", "robinjones335@gmail.com")
+OWNER_PASSWORD = os.environ["TEST_OWNER_PASSWORD"]
 
 
 # ---------- Fixtures ----------
@@ -60,7 +60,7 @@ class TestAuth:
         assert r.status_code == 200, r.text
         data = r.json()
         assert data["role"] == "owner"
-        assert data["email"] == email
+        assert data["email"].lower() == email.lower()
         assert "id" in data
 
 

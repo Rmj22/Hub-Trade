@@ -4,7 +4,10 @@ import { toast } from "sonner";
 import { Plus, X, Send, Trash2, Upload, Image as ImageIcon } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 
-const empty = { customer_name: "", customer_email: "", line_items: [{ desc: "", qty: 1, unit_price: 0 }], notes: "", photos: [], status: "draft" };
+let lineSeq = 0;
+const newLine = () => ({ _key: `li-${++lineSeq}`, desc: "", qty: 1, unit_price: 0 });
+const withKeys = (li) => (li?.length ? li.map((l) => ({ ...l, _key: l._key || `li-${++lineSeq}` })) : [newLine()]);
+const empty = { customer_name: "", customer_email: "", line_items: [], notes: "", photos: [], status: "draft" };
 
 export default function EstimatesPage() {
   const [items, setItems] = useState([]);
@@ -56,7 +59,7 @@ export default function EstimatesPage() {
           <div className="text-xs uppercase tracking-[0.2em] text-muted-foreground mb-1">Sales</div>
           <h1 className="font-head font-extrabold text-3xl sm:text-4xl tracking-tight">Estimates</h1>
         </div>
-        <button data-testid="estimates-add-btn" onClick={() => { setEditId(null); setModal({ ...empty, line_items: [{ desc: "", qty: 1, unit_price: 0 }], photos: [] }); }}
+        <button data-testid="estimates-add-btn" onClick={() => { setEditId(null); setModal({ ...empty, line_items: [newLine()], photos: [] }); }}
           className="inline-flex items-center gap-2 px-5 py-2.5 rounded-md bg-primary text-primary-foreground font-semibold text-sm hover:opacity-90 transition-opacity">
           <Plus className="w-4 h-4" /> New estimate
         </button>
@@ -76,7 +79,7 @@ export default function EstimatesPage() {
               <div className="font-head font-extrabold text-2xl mb-1">${(e.total || 0).toLocaleString()}</div>
               <div className="text-xs text-muted-foreground mb-4">{e.line_items?.length || 0} line items · {e.photos?.length || 0} photos</div>
               <div className="flex gap-2">
-                <button onClick={() => { setEditId(e.id); setModal({ ...empty, ...e, line_items: e.line_items?.length ? e.line_items : [{ desc: "", qty: 1, unit_price: 0 }], photos: e.photos || [] }); }}
+                <button onClick={() => { setEditId(e.id); setModal({ ...empty, ...e, line_items: withKeys(e.line_items), photos: e.photos || [] }); }}
                   data-testid="estimate-edit-btn" className="flex-1 py-2 rounded-md border border-border text-sm font-medium hover:bg-muted transition-colors">Edit</button>
                 <button onClick={() => send(e.id)} data-testid="estimate-send-btn" className="flex-1 py-2 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:opacity-90 transition-opacity inline-flex items-center justify-center gap-1"><Send className="w-3.5 h-3.5" /> Send</button>
                 <button onClick={() => del(e.id)} data-testid="estimate-delete-btn" className="p-2 rounded-md border border-border text-destructive hover:bg-muted transition-colors"><Trash2 className="w-4 h-4" /></button>
@@ -98,7 +101,7 @@ export default function EstimatesPage() {
             <label className="block text-xs uppercase tracking-wider text-muted-foreground mb-1.5">Line items</label>
             <div className="space-y-2 mb-3">
               {modal.line_items.map((l, i) => (
-                <div key={i} className="flex gap-2">
+                <div key={l._key} className="flex gap-2">
                   <input type="text" className={inp + " flex-1"} placeholder="Item / work description (text)" value={l.desc} onChange={(e) => { const li = [...modal.line_items]; li[i] = { ...li[i], desc: e.target.value }; setModal({ ...modal, line_items: li }); }} />
                   <input className={inp + " w-16"} type="number" placeholder="Qty" value={l.qty} onChange={(e) => { const li = [...modal.line_items]; li[i] = { ...li[i], qty: e.target.value }; setModal({ ...modal, line_items: li }); }} />
                   <input className={inp + " w-24"} type="number" placeholder="Price" value={l.unit_price} onChange={(e) => { const li = [...modal.line_items]; li[i] = { ...li[i], unit_price: e.target.value }; setModal({ ...modal, line_items: li }); }} />
@@ -106,7 +109,7 @@ export default function EstimatesPage() {
                 </div>
               ))}
             </div>
-            <button onClick={() => setModal({ ...modal, line_items: [...modal.line_items, { desc: "", qty: 1, unit_price: 0 }] })} data-testid="add-line-item-btn" className="text-sm text-primary font-semibold mb-4">+ Add line item</button>
+            <button onClick={() => setModal({ ...modal, line_items: [...modal.line_items, newLine()] })} data-testid="add-line-item-btn" className="text-sm text-primary font-semibold mb-4">+ Add line item</button>
 
             <label className="block text-xs uppercase tracking-wider text-muted-foreground mb-1.5">Notes / Description</label>
             <textarea data-testid="estimate-notes" className={inp} rows={5} placeholder="Add scope, terms, and details — special characters welcome (e.g. $, %, &, #, /, @, °, ½)" value={modal.notes} onChange={(e) => setModal({ ...modal, notes: e.target.value })} />

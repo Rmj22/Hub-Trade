@@ -4,6 +4,11 @@ import { useAuth } from "../context/AuthContext";
 import { motion } from "framer-motion";
 import { Briefcase, Clock, Truck, Wrench, AlertTriangle, FileText, Users, CheckCircle, LifeBuoy } from "lucide-react";
 import { Link } from "react-router-dom";
+import { toast } from "sonner";
+
+const GREETINGS = { owner: "Owner overview", foreman: "Foreman overview" };
+const TICKET_STATUS_CLS = { done: "bg-green-500/15 text-green-500", in_progress: "bg-amber-500/15 text-amber-500" };
+const ticketStatusCls = (s) => TICKET_STATUS_CLS[s] || "bg-primary/20 text-primary";
 
 function Stat({ icon: Icon, label, value, accent, testid }) {
   return (
@@ -24,11 +29,11 @@ export default function Dashboard() {
   const [employees, setEmployees] = useState([]);
 
   useEffect(() => {
-    api.get("/dashboard").then((r) => setD(r.data)).catch((e) => errMsg(e));
-    api.get("/employees").then((r) => setEmployees(r.data)).catch(() => {});
+    api.get("/dashboard").then((r) => setD(r.data)).catch((e) => toast.error(errMsg(e)));
+    api.get("/employees").then((r) => setEmployees(r.data)).catch((e) => console.error("Failed to load employees:", errMsg(e)));
   }, []);
 
-  const greeting = user?.role === "owner" ? "Owner overview" : user?.role === "foreman" ? "Foreman overview" : "My day";
+  const greeting = GREETINGS[user?.role] || "My day";
 
   return (
     <div data-testid="dashboard-page">
@@ -77,7 +82,7 @@ export default function Dashboard() {
                           <div className="font-semibold text-sm">{t.title}</div>
                           {t.admin_notes && <div className="text-xs text-muted-foreground">{t.admin_notes}</div>}
                         </div>
-                        <span className={`text-xs px-2 py-0.5 rounded-full font-medium whitespace-nowrap ${t.status === "done" ? "bg-green-500/15 text-green-500" : t.status === "in_progress" ? "bg-amber-500/15 text-amber-500" : "bg-primary/20 text-primary"}`}>{(t.status || "open").replace("_", " ")}</span>
+                        <span className={`text-xs px-2 py-0.5 rounded-full font-medium whitespace-nowrap ${ticketStatusCls(t.status)}`}>{(t.status || "open").replace("_", " ")}</span>
                       </div>
                     ))}
                   </div>

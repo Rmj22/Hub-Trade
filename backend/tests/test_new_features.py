@@ -7,8 +7,8 @@ import requests
 BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "https://trade-hub-910.preview.emergentagent.com").rstrip("/")
 API = f"{BASE_URL}/api"
 
-OWNER_EMAIL = "robinjones335@gmail.com"
-OWNER_PASSWORD = "BuildIt2026!"
+OWNER_EMAIL = os.environ.get("TEST_OWNER_EMAIL", "robinjones335@gmail.com")
+OWNER_PASSWORD = os.environ["TEST_OWNER_PASSWORD"]
 
 
 @pytest.fixture(scope="module")
@@ -22,7 +22,7 @@ def owner():
     r = s.post(f"{API}/auth/login", json={"email": OWNER_EMAIL, "password": OWNER_PASSWORD})
     assert r.status_code == 200, r.text
     me = s.get(f"{API}/auth/me").json()
-    assert me.get("is_superadmin") is True, "seeded owner should be super-admin"
+    assert me.get("is_superadmin") == True, "seeded owner should be super-admin"
     return {"session": s, "me": me}
 
 

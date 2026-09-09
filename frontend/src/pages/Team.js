@@ -101,26 +101,23 @@ export default function TeamPage() {
   );
 }
 
+const EMPLOYEE_COLUMNS = [
+  { key: "name", label: "Name" },
+  { key: "role_title", label: "Title" },
+  { key: "trade", label: "Trade" },
+  { key: "hourly_rate", label: "Rate", render: (it) => `$${it.hourly_rate}/hr` },
+  { key: "status", label: "Status" },
+];
+const EMPLOYEE_FIELDS = [
+  { key: "name", label: "Name", type: "text" },
+  { key: "email", label: "Email", type: "text" },
+  { key: "phone", label: "Phone", type: "text" },
+  { key: "role_title", label: "Title", type: "text", default: "Laborer" },
+  { key: "trade", label: "Trade", type: "select", options: ["General", "Electrical", "Plumbing", "HVAC", "Carpentry", "Concrete", "Roofing"], default: "General" },
+  { key: "hourly_rate", label: "Hourly Rate ($)", type: "number" },
+  { key: "status", label: "Status", type: "select", options: ["active", "inactive"], default: "active" },
+];
+
 function EmployeeRecords() {
-  return (
-    <CrudManager
-      title="Employees" endpoint="employees" testid="employees"
-      columns={[
-        { key: "name", label: "Name" },
-        { key: "role_title", label: "Title" },
-        { key: "trade", label: "Trade" },
-        { key: "hourly_rate", label: "Rate", render: (it) => `$${it.hourly_rate}/hr` },
-        { key: "status", label: "Status" },
-      ]}
-      fields={[
-        { key: "name", label: "Name", type: "text" },
-        { key: "email", label: "Email", type: "text" },
-        { key: "phone", label: "Phone", type: "text" },
-        { key: "role_title", label: "Title", type: "text", default: "Laborer" },
-        { key: "trade", label: "Trade", type: "select", options: ["General", "Electrical", "Plumbing", "HVAC", "Carpentry", "Concrete", "Roofing"], default: "General" },
-        { key: "hourly_rate", label: "Hourly Rate ($)", type: "number" },
-        { key: "status", label: "Status", type: "select", options: ["active", "inactive"], default: "active" },
-      ]}
-    />
-  );
+  return <CrudManager title="Employees" endpoint="employees" testid="employees" columns={EMPLOYEE_COLUMNS} fields={EMPLOYEE_FIELDS} />;
 }

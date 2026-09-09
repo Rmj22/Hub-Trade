@@ -23,7 +23,13 @@ export function MembershipPage() {
   const current = user?.company?.plan;
   const active = user?.company?.membership_status === "active";
 
-  useEffect(() => { refresh(); /* eslint-disable-next-line */ }, []);
+  useEffect(() => { refresh(); }, [refresh]);
+
+  const buttonLabel = (p, isCurrent) => {
+    if (loading === p.key) return <Loader2 className="w-4 h-4 animate-spin" />;
+    if (isCurrent) return "Current plan";
+    return `Choose ${p.name}`;
+  };
 
   const checkout = async (plan) => {
     if (PAYMENT_LINKS[plan]) { window.location.href = PAYMENT_LINKS[plan]; return; }
@@ -58,7 +64,7 @@ export function MembershipPage() {
                 disabled={loading || isCurrent}
                 onClick={() => checkout(p.key)}
                 className={`w-full py-3 rounded-md font-semibold transition-opacity hover:opacity-90 disabled:opacity-60 flex items-center justify-center gap-2 ${p.popular ? "bg-primary text-primary-foreground" : "border border-border"}`}>
-                {loading === p.key ? <Loader2 className="w-4 h-4 animate-spin" /> : isCurrent ? "Current plan" : `Choose ${p.name}`}
+                {buttonLabel(p, isCurrent)}
               </button>
             </div>
           );
@@ -74,21 +80,27 @@ export function PaymentSuccess() {
   const { refresh } = useAuth();
   const [status, setStatus] = useState("checking");
 
+  const sid = params.get("session_id");
+
   useEffect(() => {
-    const sid = params.get("session_id");
     if (!sid) { setStatus("error"); return; }
     let tries = 0;
+    let cancelled = false;
     const poll = async () => {
+      if (cancelled) return;
       try {
         const { data } = await api.get(`/payments/status/${sid}`);
         if (data.payment_status === "paid") { setStatus("paid"); await refresh(); return; }
         if (data.status === "expired" || tries > 8) { setStatus("error"); return; }
-      } catch { if (tries > 8) { setStatus("error"); return; } }
+      } catch (e) {
+        console.error("Payment status check failed:", errMsg(e));
+        if (tries > 8) { setStatus("error"); return; }
+      }
       tries += 1; setTimeout(poll, 2000);
     };
     poll();
-    // eslint-disable-next-line
-  }, []);
+    return () => { cancelled = true; };
+  }, [sid, refresh]);
 
   return (
     <div className="min-h-screen flex items-center justify-center p-4 bg-background" data-testid="payment-success-page">

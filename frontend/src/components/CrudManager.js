@@ -1,8 +1,10 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { api, errMsg } from "../lib/api";
 import { toast } from "sonner";
 import { Plus, Pencil, Trash2, X } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
+
+const INPUT_TYPES = { number: "number", date: "date" };
 
 function Field({ f, value, onChange }) {
   const base = "w-full px-3 py-2 rounded-md border border-input bg-background text-sm focus:ring-2 focus:ring-primary focus:outline-none";
@@ -14,15 +16,12 @@ function Field({ f, value, onChange }) {
     );
   if (f.type === "textarea")
     return <textarea data-testid={`field-${f.key}`} className={base} rows={3} value={value ?? ""} onChange={(e) => onChange(e.target.value)} />;
-  return (
-    <input
-      data-testid={`field-${f.key}`}
-      type={f.type === "number" ? "number" : f.type === "date" ? "date" : "text"}
-      className={base}
-      value={value ?? ""}
-      onChange={(e) => onChange(f.type === "number" ? (e.target.value === "" ? "" : Number(e.target.value)) : e.target.value)}
-    />
-  );
+  const handleChange = (e) => {
+    const raw = e.target.value;
+    if (f.type !== "number") return onChange(raw);
+    onChange(raw === "" ? "" : Number(raw));
+  };
+  return <input data-testid={`field-${f.key}`} type={INPUT_TYPES[f.type] || "text"} className={base} value={value ?? ""} onChange={handleChange} />;
 }
 
 export default function CrudManager({ title, endpoint, testid, fields, columns, canWrite = true, renderExtra }) {
@@ -32,13 +31,13 @@ export default function CrudManager({ title, endpoint, testid, fields, columns, 
   const [modal, setModal] = useState(null); // form object or null
   const [editId, setEditId] = useState(null);
 
-  const load = async () => {
+  const load = useCallback(async () => {
     setLoading(true);
     try { const { data } = await api.get(`/${endpoint}`); setItems(data); }
     catch (e) { toast.error(errMsg(e)); }
     setLoading(false);
-  };
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, [endpoint]);
+  }, [endpoint]);
+  useEffect(() => { load(); }, [load]);
 
   const emptyForm = () => Object.fromEntries(fields.map((f) => [f.key, f.default ?? (f.type === "number" ? 0 : "")]));
 
@@ -79,13 +78,13 @@ export default function CrudManager({ title, endpoint, testid, fields, columns, 
         )}
       </div>
 
-      {loading ? (
-        <div className="text-muted-foreground">Loading…</div>
-      ) : items.length === 0 ? (
+      {loading && <div className="text-muted-foreground">Loading…</div>}
+      {!loading && items.length === 0 && (
         <div className="border border-dashed border-border rounded-md p-12 text-center text-muted-foreground" data-testid={`${testid}-empty`}>
           No {title.toLowerCase()} yet.
         </div>
-      ) : (
+      )}
+      {!loading && items.length > 0 && (
         <div className="border border-border rounded-md overflow-hidden bg-card">
           <div className="overflow-x-auto">
             <table className="w-full text-sm">

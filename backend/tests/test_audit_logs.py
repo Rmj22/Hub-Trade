@@ -10,8 +10,8 @@ import pytest
 BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "https://trade-hub-910.preview.emergentagent.com").rstrip("/")
 API = f"{BASE_URL}/api"
 
-OWNER_EMAIL = "robinjones335@gmail.com"
-OWNER_PASSWORD = "BuildIt2026!"
+OWNER_EMAIL = os.environ.get("TEST_OWNER_EMAIL", "robinjones335@gmail.com")
+OWNER_PASSWORD = os.environ["TEST_OWNER_PASSWORD"]
 
 
 @pytest.fixture(scope="module")

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { api, errMsg } from "../lib/api";
 import { useAuth } from "../context/AuthContext";
 import { toast } from "sonner";
@@ -27,20 +27,19 @@ export default function AdminControl() {
   const [tickets, setTickets] = useState([]);
   const [edit, setEdit] = useState(null);
 
-  const load = async () => {
+  const load = useCallback(async () => {
     try {
       const [s, t] = await Promise.all([api.get("/admin/stats"), api.get("/admin/data-entry-tickets")]);
       setStats(s.data); setTickets(t.data);
     } catch (e) { toast.error(errMsg(e)); }
-  };
+  }, []);
 
   useEffect(() => {
     if (user === null) return;
     if (user === false) { nav("/login"); return; }
     if (!user.is_superadmin) { nav("/app"); return; }
     load();
-    // eslint-disable-next-line
-  }, [user]);
+  }, [user, nav, load]);
 
   const saveTicket = async () => {
     try {

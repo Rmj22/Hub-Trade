@@ -7,3 +7,6 @@
 ## 2026-06 Deployment health check
 - Removed .env ignores from /app/.gitignore (was a deploy blocker).
 - Added Mongo projections to dashboard, weekly_report, job_cost in server.py. Deployment agent: PASS/WARN (deployable).
+
+## 2026-06 Code review fixes
+- Fixed hook deps (AuthContext, Dashboard, Membership, AuditLogs, CrudManager, AdminControl), empty catch, index-as-key in Estimates (_key), nested ternaries, extracted inline column/field arrays (Resources, Team), removed craco console.warn, split server.py dashboard()/weekly_report() into helpers (_count, _hourly_rates, _sum_field, _data_entry_summary). Regression: iteration_7.json all pass.

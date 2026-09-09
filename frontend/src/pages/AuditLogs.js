@@ -10,7 +10,7 @@ export default function AuditLogsPage() {
   const [end, setEnd] = useState("");
   const [exporting, setExporting] = useState(false);
 
-  const load = useCallback(async (s = start, e = end) => {
+  const load = useCallback(async (s = "", e = "") => {
     setLoading(true);
     try {
       const params = {};
@@ -20,9 +20,9 @@ export default function AuditLogsPage() {
       setLogs(data);
     } catch (err) { toast.error(errMsg(err)); }
     setLoading(false);
-  }, [start, end]);
+  }, []);
 
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, []);
+  useEffect(() => { load(); }, [load]);
 
   const applyFilter = () => {
     if (start && end && start > end) { toast.error("Start date must be before end date"); return; }
@@ -88,14 +88,14 @@ export default function AuditLogsPage() {
         )}
       </div>
 
-      {loading ? (
-        <div className="text-muted-foreground">Loading…</div>
-      ) : logs.length === 0 ? (
+      {loading && <div className="text-muted-foreground">Loading…</div>}
+      {!loading && logs.length === 0 && (
         <div className="border border-dashed border-border rounded-md p-12 text-center text-muted-foreground" data-testid="audit-empty">
           <ScrollText className="w-8 h-8 mx-auto mb-3 text-primary" />
           No activity found for this range.
         </div>
-      ) : (
+      )}
+      {!loading && logs.length > 0 && (
         <div className="border border-border rounded-md bg-card overflow-hidden overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
