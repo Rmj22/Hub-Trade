@@ -31,10 +31,6 @@ dist/
 dist
 
 # Environment files (comprehensive coverage)
-.env
-backend/.env
-frontend/.env
-*.env
 
 *token.json*
 *credentials.json*
@@ -84,7 +80,6 @@ memory/test_credentials.md
 
 # Mobile development
 android-sdk/
-.env.*
 credentials.json
 *.key
 .credentials
