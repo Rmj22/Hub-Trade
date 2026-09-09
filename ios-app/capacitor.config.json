@@ -1,0 +1,14 @@
+{
+  "appId": "com.summitofficesolution.tradehub",
+  "appName": "Hub Trade",
+  "webDir": "www",
+  "server": {
+    "url": "https://YOUR-DEPLOYED-HUB-TRADE-URL",
+    "cleartext": false
+  },
+  "ios": {
+    "contentInset": "always",
+    "backgroundColor": "#0b0f14",
+    "limitsNavigationsToAppBoundDomains": true
+  }
+}
