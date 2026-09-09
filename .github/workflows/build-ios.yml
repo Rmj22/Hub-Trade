@@ -10,7 +10,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Select Xcode
         run: |
@@ -26,19 +26,25 @@ jobs:
             pod install
           fi
 
+      - name: Create App Store Connect API key
+        run: |
+          echo '${{ secrets.APPLE_PRIVATE_KEY }}' > "$RUNNER_TEMP/AuthKey_${{ secrets.APPLE_KEY_ID }}.p8"
+          chmod 600 "$RUNNER_TEMP/AuthKey_${{ secrets.APPLE_KEY_ID }}.p8"
+
       - name: Build archive
         run: |
           cd frontend/ios
 
           xcodebuild \
-  -workspace ios/App/App.xcworkspace \
-  -scheme App \
-  -configuration Release \
-  -archivePath "$RUNNER_TEMP/App.xcarchive" \
-  -authenticationKeyPath "$RUNNER_TEMP/AuthKey_${{ secrets.APPLE_KEY_ID }}.p8" \
-  -authenticationKeyID "${{ secrets.APPLE_KEY_ID }}" \
-  -authenticationKeyIssuerID "${{ secrets.APPLE_ISSUER_ID }}" \
-  archive
+            -workspace App/App.xcworkspace \
+            -scheme App \
+            -configuration Release \
+            -sdk iphoneos \
+            -archivePath "$RUNNER_TEMP/App.xcarchive" \
+            -authenticationKeyPath "$RUNNER_TEMP/AuthKey_${{ secrets.APPLE_KEY_ID }}.p8" \
+            -authenticationKeyID "${{ secrets.APPLE_KEY_ID }}" \
+            -authenticationKeyIssuerID "${{ secrets.APPLE_ISSUER_ID }}" \
+            archive
 
       - name: Export IPA
         run: |
@@ -48,7 +54,7 @@ jobs:
             -exportArchive \
             -archivePath "$RUNNER_TEMP/App.xcarchive" \
             -exportPath "$RUNNER_TEMP/export" \
-            -exportOptionsPlist ExportOptions.plist
+            -exportOptionsPlist App/ExportOptions.plist
 
       - name: Upload IPA
         uses: actions/upload-artifact@v4
