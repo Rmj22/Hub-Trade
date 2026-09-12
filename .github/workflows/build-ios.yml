@@ -147,27 +147,25 @@ jobs:
             PRODUCT_BUNDLE_IDENTIFIER="com.summitofficesolution.tradehub" \
             archive
 
-      - name: Create ExportOptions.plist
+      - name: Package IPA manually
         run: |
-          cd ios-app
+          set -e
+          EXPORT_DIR="$RUNNER_TEMP/export"
+          PAYLOAD_DIR="$EXPORT_DIR/Payload"
 
-          sed "s/YOUR_TEAM_ID/${{ secrets.APPLE_TEAM_ID }}/" \
-            ExportOptions.plist > "$RUNNER_TEMP/ExportOptions.plist"
+          mkdir -p "$PAYLOAD_DIR"
 
-      - name: Export IPA
-        run: |
-          cd ios-app
+          cp -R "$RUNNER_TEMP/HubTrade.xcarchive/Products/Applications/App.app" "$PAYLOAD_DIR/"
 
-          mkdir -p "$RUNNER_TEMP/export"
+          cd "$EXPORT_DIR"
+          zip -r -y "HubTrade.ipa" Payload
 
-          xcodebuild \
-            -exportArchive \
-            -archivePath "$RUNNER_TEMP/HubTrade.xcarchive" \
-            -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" \
-            -exportPath "$RUNNER_TEMP/export"
+          echo "----- IPA contents -----"
+          unzip -l "$EXPORT_DIR/HubTrade.ipa" | head -20
 
       - name: Upload IPA
         uses: actions/upload-artifact@v4
         with:
           name: ios-ipa
-          path: ${{ runner.temp }}/export/*.ipa
+          path: ${{ runner.temp }}/export/HubTrade.ipa
+
