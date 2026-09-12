@@ -24,8 +24,6 @@ jobs:
       - name: Show Xcode version
         run: xcodebuild -version
 
-      # ...rest of your steps unchanged...
-
       - name: Install Node.js
         uses: actions/setup-node@v5
         with:
@@ -45,8 +43,6 @@ jobs:
           cd ios-app
           npx cap add ios
           npx cap sync ios
-
-      # ---- Manual signing setup (replaces automatic/API-key signing) ----
 
       - name: Import Code-Signing Certificate
         env:
