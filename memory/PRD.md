@@ -13,3 +13,6 @@
 
 ## 2026-06 Windows build path
 - Added .github/workflows/build-ios.yml (GitHub Actions macOS runner builds app + extension .ipa, uploads to TestFlight via ASC API key). Docs: ios-app/WINDOWS-BUILD.md. Required secrets: APPLE_TEAM_ID, ASC_KEY_ID, ASC_ISSUER_ID, ASC_API_KEY_P8, HUB_TRADE_URL.
+
+## 2026-06 iOS project modernisation
+- ios-app upgraded to Capacitor 8.5.2 (SPM, no CocoaPods), committed Xcode project ios/App/App.xcodeproj, UIScene lifecycle (SceneDelegate), deployment target iOS 16.0, bundle com.summitofficesolution.tradehub, 1024px AppIcon. CI uses macos-26 + Node 22. Cannot compile here (no Xcode).
