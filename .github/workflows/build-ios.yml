@@ -144,7 +144,6 @@ jobs:
             -configuration Release \
             -destination 'generic/platform=iOS' \
             -archivePath "$RUNNER_TEMP/HubTrade.xcarchive" \
-            PRODUCT_BUNDLE_IDENTIFIER="com.summitofficesolution.tradehub" \
             archive
 
       - name: Package IPA manually
@@ -192,4 +191,4 @@ jobs:
           issuer-id: ${{ secrets.ASC_ISSUER_ID }}
           api-key-id: ${{ secrets.ASC_KEY_ID }}
           api-private-key: ${{ secrets.ASC_API_KEY_P8 }}
-
+          wait-for-processing: 'false'
