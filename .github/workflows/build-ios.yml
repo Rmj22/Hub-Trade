@@ -169,22 +169,27 @@ jobs:
           name: ios-ipa
           path: ${{ runner.temp }}/export/HubTrade.ipa
 
-      - name: Import App Store Connect API Key
+      - name: Sanity-check ASC credentials (no secrets printed)
         env:
           ASC_API_KEY_P8: ${{ secrets.ASC_API_KEY_P8 }}
           ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
-        run: |
-          mkdir -p ~/.appstoreconnect/private_keys
-          echo "$ASC_API_KEY_P8" > ~/.appstoreconnect/private_keys/AuthKey_${ASC_KEY_ID}.p8
-
-      - name: Upload to App Store Connect
-        env:
-          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
           ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
         run: |
-          xcrun altool --upload-app \
-            -f "${{ runner.temp }}/export/HubTrade.ipa" \
-            -t ios \
-            --apiKey "$ASC_KEY_ID" \
-            --apiIssuer "$ASC_ISSUER_ID"
+          echo "Key ID length: ${#ASC_KEY_ID} (should be 10, no spaces/newlines)"
+          echo "Issuer ID length: ${#ASC_ISSUER_ID} (should be 36, a UUID)"
+          echo "P8 first line: $(echo "$ASC_API_KEY_P8" | head -n1)"
+          echo "P8 last line: $(echo "$ASC_API_KEY_P8" | tail -n1)"
+          echo "P8 line count: $(echo "$ASC_API_KEY_P8" | wc -l) (should be ~4-5)"
+          # First line must read exactly: -----BEGIN PRIVATE KEY-----
+          # Last non-empty line must read exactly: -----END PRIVATE KEY-----
+          # If Key/Issuer ID length looks off, or BEGIN/END lines don't match exactly,
+          # re-copy the secret from appstoreconnect.apple.com with no extra whitespace.
+
+      - name: Upload to TestFlight
+        uses: apple-actions/upload-testflight-build@v5
+        with:
+          app-path: ${{ runner.temp }}/export/HubTrade.ipa
+          issuer-id: ${{ secrets.ASC_ISSUER_ID }}
+          api-key-id: ${{ secrets.ASC_KEY_ID }}
+          api-private-key: ${{ secrets.ASC_API_KEY_P8 }}
 
