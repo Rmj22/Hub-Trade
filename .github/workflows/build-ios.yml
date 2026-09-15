@@ -2,211 +2,107 @@ name: Build iOS IPA
 
 on:
   workflow_dispatch:
+    inputs:
+      target:
+        description: "Which app to build"
+        required: true
+        default: "app"
+        type: choice
+        options:
+          - app
+          - extension
+          - both
+
+env:
+  APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
 
 jobs:
   app:
     if: inputs.target == 'app' || inputs.target == 'both'
+    name: Build & Upload App
     runs-on: macos-26
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-node@v4
         with: { node-version: 22 }
+
       - uses: maxim-lobanov/setup-xcode@v1
         with: { xcode-version: latest-stable }
+
       - name: Install App Store Connect API key
-  build-ios:
-    name: Build iOS IPA
-    runs-on: macos-latest
-
-    steps:
-      - name: Debug secret length
-        run: |
-          echo "Length: ${#BUILD_PROVISION_PROFILE_BASE64}"
-        env:
-          BUILD_PROVISION_PROFILE_BASE64: ${{ secrets.BUILD_PROVISION_PROFILE_BASE64 }}
-
-      - name: Checkout repository
-        uses: actions/checkout@v5
-
-      - name: Select Xcode
-        run: |
-          sudo xcode-select -s /Applications/Xcode.app
-
-      - name: Show Xcode version
-        run: xcodebuild -version
-
-      - name: Install Node.js
-        uses: actions/setup-node@v5
-        with:
-          node-version: 20
-
-      - name: Install CocoaPods
-        run: |
-          sudo gem install cocoapods
-
-      - name: Install iOS dependencies
-        run: |
-          cd ios-app
-          npm install
-
-      - name: Create iOS project
-        run: |
-          cd ios-app
-          npx cap add ios
-
-      - name: Disable code signing for Pods targets
-        run: |
-          cd ios-app/ios/App
-          ruby -e '
-            podfile_path = "Podfile"
-            content = File.read(podfile_path)
-
-            injection = <<~RUBY
-              installer.pods_project.targets.each do |target|
-                target.build_configurations.each do |config|
-                  config.build_settings["CODE_SIGNING_ALLOWED"] = "NO"
-                  config.build_settings["CODE_SIGNING_REQUIRED"] = "NO"
-                  config.build_settings["CODE_SIGN_IDENTITY"] = ""
-                  config.build_settings["EXPANDED_CODE_SIGN_IDENTITY"] = ""
-                  config.build_settings["PROVISIONING_PROFILE_SPECIFIER"] = ""
-                end
-              end
-            RUBY
-
-            if content =~ /post_install do \|installer\|/
-              content = content.sub(/post_install do \|installer\|/, "post_install do |installer|\n#{injection}")
-            else
-              content += "\n\npost_install do |installer|\n#{injection}end\n"
-            end
-
-            File.write(podfile_path, content)
-          '
-          echo "----- Resulting Podfile -----"
-          cat Podfile
-
-      - name: Sync iOS project
-        run: |
-          cd ios-app
-          npx cap sync ios
-
-      - name: Configure signing on App target only
-        env:
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: |
-          cd ios-app/ios/App
-          ruby -e '
-            require "xcodeproj"
-
-  extension:
-    if: inputs.target == 'extension' || inputs.target == 'both'
-    runs-on: macos-26
-    steps:
-      - uses: actions/checkout@v4
-      - uses: maxim-lobanov/setup-xcode@v1
-        with: { xcode-version: latest-stable }
-      - name: Install App Store Connect API key
-            project = Xcodeproj::Project.open("App.xcodeproj")
-
-            app_target = project.targets.find { |t| t.name == "App" }
-            raise "App target not found" unless app_target
-
-            app_target.build_configurations.each do |config|
-              config.build_settings["CODE_SIGN_STYLE"] = "Manual"
-              config.build_settings["DEVELOPMENT_TEAM"] = ENV["APPLE_TEAM_ID"]
-              config.build_settings["PROVISIONING_PROFILE_SPECIFIER"] = "TradeHA"
-              config.build_settings["CODE_SIGN_IDENTITY"] = "Apple Distribution"
-              config.build_settings["CODE_SIGN_IDENTITY[sdk=iphoneos*]"] = "Apple Distribution"
-            end
-
-            project.save
-          '
-
-      - name: Import Code-Signing Certificate
-        env:
-          BUILD_CERTIFICATE_BASE64: ${{ secrets.BUILD_CERTIFICATE_BASE64 }}
-          P12_PASSWORD: ${{ secrets.P12_PASSWORD }}
-          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
-        run: |
-          CERTIFICATE_PATH="$RUNNER_TEMP/build_certificate.p12"
-          KEYCHAIN_PATH="$RUNNER_TEMP/app-signing.keychain-db"
-
-          echo -n "$BUILD_CERTIFICATE_BASE64" | base64 --decode -o "$CERTIFICATE_PATH"
-
-          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
-          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
-          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
-
-          security import "$CERTIFICATE_PATH" -P "$P12_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
-          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
-
-          security list-keychain -d user -s "$KEYCHAIN_PATH" $(security list-keychains -d user | sed 's/"//g')
-
-      - name: Install Provisioning Profile
-        env:
-          BUILD_PROVISION_PROFILE_BASE64: ${{ secrets.BUILD_PROVISION_PROFILE_BASE64 }}
-        run: |
-          PROFILE_PATH="$RUNNER_TEMP/build_pp.mobileprovision"
-          echo -n "$BUILD_PROVISION_PROFILE_BASE64" | base64 --decode -o "$PROFILE_PATH"
-
-          PROFILES_DIR=~/Library/MobileDevice/Provisioning\ Profiles
-          mkdir -p "$PROFILES_DIR"
-          cp "$PROFILE_PATH" "$PROFILES_DIR"
-
-      - name: Build archive
-        run: |
-          cd ios-app
-
-          xcodebuild \
-            -workspace ios/App/App.xcworkspace \
-            -scheme App \
-            -configuration Release \
-            -destination 'generic/platform=iOS' \
-            -archivePath "$RUNNER_TEMP/HubTrade.xcarchive" \
-            archive
-
-      - name: Package IPA manually
-        run: |
-          set -e
-          EXPORT_DIR="$RUNNER_TEMP/export"
-          PAYLOAD_DIR="$EXPORT_DIR/Payload"
-
-          mkdir -p "$PAYLOAD_DIR"
-
-          cp -R "$RUNNER_TEMP/HubTrade.xcarchive/Products/Applications/App.app" "$PAYLOAD_DIR/"
-
-          cd "$EXPORT_DIR"
-          zip -r -y "HubTrade.ipa" Payload
-
-          echo "----- IPA contents -----"
-          unzip -l "$EXPORT_DIR/HubTrade.ipa" | head -20
-
-      - name: Upload IPA
-        uses: actions/upload-artifact@v4
-        with:
-          name: ios-ipa
-          path: ${{ runner.temp }}/export/HubTrade.ipa
-
-      - name: Sanity-check ASC credentials (no secrets printed)
         env:
           ASC_API_KEY_P8: ${{ secrets.ASC_API_KEY_P8 }}
           ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
-          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
         run: |
-          echo "Key ID length: ${#ASC_KEY_ID} (should be 10, no spaces/newlines)"
-          echo "Issuer ID length: ${#ASC_ISSUER_ID} (should be 36, a UUID)"
-          echo "P8 first line: $(echo "$ASC_API_KEY_P8" | head -n1)"
-          echo "P8 last line: $(echo "$ASC_API_KEY_P8" | tail -n1)"
-          echo "P8 line count: $(echo "$ASC_API_KEY_P8" | wc -l) (should be ~4-5)"
-          # First line must read exactly: -----BEGIN PRIVATE KEY-----
-          # Last non-empty line must read exactly: -----END PRIVATE KEY-----
-          # If Key/Issuer ID length looks off, or BEGIN/END lines don't match exactly,
-          # re-copy the secret from appstoreconnect.apple.com with no extra whitespace.
+          mkdir -p ~/private_keys
+          echo "$ASC_API_KEY_P8" > ~/private_keys/AuthKey_${ASC_KEY_ID}.p8
+
+      - name: Point app at deployed backend
+        run: |
+          cd ios-app
+          sed -i '' "s#https://YOUR-DEPLOYED-HUB-TRADE-URL#${{ secrets.HUB_TRADE_URL }}#" capacitor.config.json
+
+      - name: Install dependencies
+        run: |
+          cd ios-app
+          npm install
+          npx cap sync ios
+
+      - name: Bump build number
+        run: |
+          cd ios-app/ios/App
+          agvtool new-version -all "${{ github.run_number }}"
+
+      - name: Build & archive
+        run: |
+          cd ios-app
+          mkdir -p build
+          sed "s/YOUR_TEAM_ID/$APPLE_TEAM_ID/" ExportOptions.plist > build/ExportOptions.plist
+          xcodebuild -project ios/App/App.xcodeproj -scheme App -configuration Release \
+            -destination 'generic/platform=iOS' -archivePath build/HubTrade.xcarchive \
+            DEVELOPMENT_TEAM="$APPLE_TEAM_ID" CODE_SIGN_STYLE=Automatic -allowProvisioningUpdates -skipPackagePluginValidation \
+            -authenticationKeyPath ~/private_keys/AuthKey_${{ secrets.ASC_KEY_ID }}.p8 \
+            -authenticationKeyID ${{ secrets.ASC_KEY_ID }} -authenticationKeyIssuerID ${{ secrets.ASC_ISSUER_ID }} archive
+
+      - name: Export .ipa
+        run: |
+          cd ios-app
+          xcodebuild -exportArchive -archivePath build/HubTrade.xcarchive \
+            -exportOptionsPlist build/ExportOptions.plist -exportPath build/ipa -allowProvisioningUpdates
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-ipa
+          path: ios-app/build/ipa/*.ipa
 
       - name: Upload to TestFlight
         uses: apple-actions/upload-testflight-build@v5
         with:
-          app-path: ${{ runner.temp }}/export/HubTrade.ipa
+          app-path: ios-app/build/ipa/App.ipa
           issuer-id: ${{ secrets.ASC_ISSUER_ID }}
           api-key-id: ${{ secrets.ASC_KEY_ID }}
           api-private-key: ${{ secrets.ASC_API_KEY_P8 }}
           wait-for-processing: 'false'
+
+  extension:
+    if: inputs.target == 'extension' || inputs.target == 'both'
+    name: Build & Upload Safari Extension
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: maxim-lobanov/setup-xcode@v1
+        with: { xcode-version: latest-stable }
+
+      - name: Install App Store Connect API key
+        env:
+          ASC_API_KEY_P8: ${{ secrets.ASC_API_KEY_P8 }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+        run: |
+          mkdir -p ~/private_keys
+          echo "$ASC_API_KEY_P8" > ~/private_keys/AuthKey_${ASC_KEY_ID}.p8
+
+      # Fill in extension build/export/upload steps here, following the
+      # same pattern as the app job above, pointed at the safari-extension/ folder.
