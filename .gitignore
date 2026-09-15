@@ -86,3 +86,7 @@ credentials.json
 .env
 .env.*
 *.env
+ios-app/node_modules/
+ios-app/build/
+safari-extension/xcode/
+safari-extension/build/

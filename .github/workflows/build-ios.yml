@@ -4,6 +4,16 @@ on:
   workflow_dispatch:
 
 jobs:
+  app:
+    if: inputs.target == 'app' || inputs.target == 'both'
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - uses: maxim-lobanov/setup-xcode@v1
+        with: { xcode-version: latest-stable }
+      - name: Install App Store Connect API key
   build-ios:
     name: Build iOS IPA
     runs-on: macos-latest
@@ -87,6 +97,14 @@ jobs:
           ruby -e '
             require "xcodeproj"
 
+  extension:
+    if: inputs.target == 'extension' || inputs.target == 'both'
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+      - uses: maxim-lobanov/setup-xcode@v1
+        with: { xcode-version: latest-stable }
+      - name: Install App Store Connect API key
             project = Xcodeproj::Project.open("App.xcodeproj")
 
             app_target = project.targets.find { |t| t.name == "App" }

@@ -907,6 +907,25 @@ async def startup():
             upd["role"] = "owner"
         if upd:
             await db.users.update_one({"email": admin_email}, {"$set": upd})
+    await seed_tester()
+
+
+async def seed_tester():
+    email = os.environ.get("TESTER_EMAIL")
+    password = os.environ.get("TESTER_PASSWORD")
+    if not email or not password:
+        return
+    email = email.lower()
+    active = {"plan": "large", "membership_status": "active", "membership_since": now_iso(), "is_tester": True}
+    existing = await db.users.find_one({"email": email})
+    if existing is None:
+        comp = await db.companies.insert_one({"name": "Tester Construction LLC", "trade": "General", "created_at": now_iso(), **active})
+        await db.users.insert_one({"email": email, "password_hash": hash_password(password), "name": "App Tester", "role": "owner",
+                                   "is_superadmin": False, "company_id": str(comp.inserted_id), "created_at": now_iso()})
+        return
+    if not verify_password(password, existing["password_hash"]):
+        await db.users.update_one({"_id": existing["_id"]}, {"$set": {"password_hash": hash_password(password)}})
+    await db.companies.update_one({"_id": ObjectId(existing["company_id"])}, {"$set": active})
 
 
 @app.on_event("shutdown")
