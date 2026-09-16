@@ -76,6 +76,18 @@ jobs:
           mkdir -p "$PROFILES_DIR"
           cp "$PROFILE_PATH" "$PROFILES_DIR"
 
+      - name: Debug — show installed profile's real name
+        run: |
+          security cms -D -i "$RUNNER_TEMP/build_pp.mobileprovision" > "$RUNNER_TEMP/profile.plist"
+          echo "----- Profile Name -----"
+          /usr/libexec/PlistBuddy -c "Print :Name" "$RUNNER_TEMP/profile.plist"
+          echo "----- App ID / Bundle ID -----"
+          /usr/libexec/PlistBuddy -c "Print :Entitlements:application-identifier" "$RUNNER_TEMP/profile.plist"
+          echo "----- Team ID -----"
+          /usr/libexec/PlistBuddy -c "Print :TeamIdentifier:0" "$RUNNER_TEMP/profile.plist"
+          echo "----- Expiration -----"
+          /usr/libexec/PlistBuddy -c "Print :ExpirationDate" "$RUNNER_TEMP/profile.plist"
+
       - name: Set manual signing on the App target
         run: |
           cd ios-app/ios/App
