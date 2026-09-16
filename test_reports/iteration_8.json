@@ -1,0 +1,39 @@
+{
+  "summary": "Frontend regression after Hub Trade sub-component split (dashboard/Panels, crud/CrudParts, estimates/EstimateParts, audit/AuditParts, admin/AdminParts). All 11 requested flows verified end-to-end via Playwright against public preview URL. No behavioural regressions detected; all data-testids from the review request are present and working. Backend testing skipped per instructions.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "verified_flows": [
+    "LOGIN: owner robinjones335@gmail.com / BuildIt2026! -> /app (cookie access_token set, redirect ok).",
+    "DASHBOARD: dashboard-page renders; 8 stat-* cards, dashboard-hours-meter (1), dashboard-ticket-updates panel (1), active jobs list + crew status panel visible.",
+    "JOBS (CrudManager+CrudParts): rows load (4 initial), jobs-add-btn opens New Job modal, field-name + jobs-save-btn create new row (4->5), jobs-edit-btn opens edit modal, jobs-delete-btn deletes row (5->4 after cleanup).",
+    "VEHICLES: page loads, vehicles-add-btn visible.",
+    "EQUIPMENT: page loads, equipment-add-btn visible.",
+    "TEAM: team-page + 21 team-row entries render; add-member-btn present.",
+    "ESTIMATES (EstimateParts): estimates-add-btn opens modal; add-line-item-btn adds rows (3 total); typing 'Row1-Test' in the 2nd row keeps focus on that row and value stored correctly (React _key stability preserved); qty*price total = 3*50 = $150 shown in estimate-total; estimate-save-btn persists estimate (cards 1->2). Cleanup performed (deleted TEST_Regr_Cust card).",
+    "AUDIT LOGS (AuditParts): audit-filter-bar renders, audit-apply-filter-btn clickable, audit-export-btn clickable, audit-clear-filter-btn is conditionally rendered only when start||end is set (correct behavior).",
+    "MEMBERSHIP: 3 membership-plan-* cards render with correct prices ($60 Startup / $89 Medium / $149 Large), 6-month billing text ('$360/$534/$894 billed every 6 months'), 'Current plan' label on Medium (active), 'Choose Startup' / 'Choose Large' on others.",
+    "ADMIN CONTROL /admin-control-241: platform stats + tickets table load (25 tickets, admin-ticket-manage-btn present); clicking Manage opens modal with admin-ticket-save-btn present.",
+    "NOTIFICATION BELL: notification-bell present in header and clickable (opens dropdown).",
+    "LOGOUT: logout-btn in sidebar clears session and redirects to /login."
+  ],
+  "test_report_links": [
+    "/app/test_reports/iteration_7.json (previous backend regression)"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Estimates.js still uses module-level `lineSeq` counter for line-item _key (noted in iteration_7); consider crypto.randomUUID() for SSR/HMR robustness. Non-blocking.",
+    "Individual estimate line-item inputs (desc/qty/unit_price) still lack data-testid attributes (only container-level testids exist). Suggested: data-testid={`line-item-desc-${i}`}, `line-item-qty-${i}`, `line-item-price-${i}` and a `line-item-remove-${i}` for the remove button. Improves future automated coverage.",
+    "audit-clear-filter-btn correctly only renders when a date filter is active - documented here so future testers apply a date before asserting the button."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "not-tested", "frontend": "100%"},
+  "test_credentials": "Owner: robinjones335@gmail.com / BuildIt2026! (from /app/memory/test_credentials.md)",
+  "seed_data_creation": "Created + cleaned up TEST_Regr_Job (Jobs) and TEST_Regr_Cust estimate during UI test. No residual test data.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Post-refactor frontend regression PASSED. All sub-component files load correctly (Panels.js, CrudParts.js, EstimateParts.js, AuditParts.js, AdminParts.js). Data-testids preserved. The refactor introduced no functional regressions. If further frontend tests are needed, note that audit-clear-filter-btn is conditional on date filter being set, and estimate line-item remove buttons don't yet have a stable data-testid (used generic selector fallback)."
+}

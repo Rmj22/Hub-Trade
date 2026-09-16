@@ -19,3 +19,7 @@
 
 ## 2026-06 Deployment check #2
 - .env ignore patterns had been re-added to .gitignore by an auto-commit; removed again. NOTE for future agents: verify .gitignore has no .env patterns before deploy.
+
+## 2026-06 Code review round 2
+- Split Dashboard/AuditLogs/AdminControl/Estimates/CrudManager into sub-components (components/dashboard, audit, admin, estimates, crud). Removed console.* calls; magic numbers → constants (lib/plans.js, POLL_INTERVAL_MS etc.); test truthiness asserts; random test passwords. Regression: iteration_8.json all pass; pytest 37/37.
+- NOTE: hook-dep findings for module imports (api, errMsg) and `is None` checks in server.py are false positives — intentionally left.
