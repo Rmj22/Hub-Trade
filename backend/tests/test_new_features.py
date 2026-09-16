@@ -22,7 +22,7 @@ def owner():
     r = s.post(f"{API}/auth/login", json={"email": OWNER_EMAIL, "password": OWNER_PASSWORD})
     assert r.status_code == 200, r.text
     me = s.get(f"{API}/auth/me").json()
-    assert me.get("is_superadmin") == True, "seeded owner should be super-admin"
+    assert me.get("is_superadmin"), "seeded owner should be super-admin"
     return {"session": s, "me": me}
 
 

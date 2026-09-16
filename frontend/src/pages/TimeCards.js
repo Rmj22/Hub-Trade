@@ -3,6 +3,8 @@ import { api, errMsg } from "../lib/api";
 import { toast } from "sonner";
 import { LogIn, LogOut, Clock } from "lucide-react";
 
+const RECENT_CARDS_LIMIT = 30;
+
 export default function TimeCardsPage() {
   const [employees, setEmployees] = useState([]);
   const [active, setActive] = useState([]);
@@ -73,7 +75,7 @@ export default function TimeCardsPage() {
         <table className="w-full text-sm">
           <thead><tr className="border-b border-border bg-muted/50"><th className="text-left px-4 py-3 font-semibold">Employee</th><th className="text-left px-4 py-3 font-semibold">Job</th><th className="text-left px-4 py-3 font-semibold">In</th><th className="text-left px-4 py-3 font-semibold">Out</th><th className="text-left px-4 py-3 font-semibold">Hours</th></tr></thead>
           <tbody>
-            {cards.slice(0, 30).map((c) => (
+            {cards.slice(0, RECENT_CARDS_LIMIT).map((c) => (
               <tr key={c.id} className="border-b border-border last:border-0" data-testid="timecard-row">
                 <td className="px-4 py-3">{empName(c.employee_id)}</td>
                 <td className="px-4 py-3 text-muted-foreground">{jobName(c.job_id)}</td>

@@ -25,7 +25,7 @@ def owner():
 @pytest.fixture(scope="module")
 def foreman(owner):
     email = f"audit_foreman_{uuid.uuid4().hex[:6]}@jones.co"
-    password = "Pass123!"
+    password = f"Tmp-{uuid.uuid4().hex[:10]}!"
     r = owner.post(f"{API}/team", json={"name": "Audit Foreman", "email": email, "password": password, "role": "foreman"})
     assert r.status_code in (200, 201), r.text
     fs = requests.Session()

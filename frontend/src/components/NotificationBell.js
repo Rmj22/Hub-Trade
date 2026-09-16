@@ -2,13 +2,15 @@ import { useEffect, useState, useRef } from "react";
 import { api } from "../lib/api";
 import { Bell, Check } from "lucide-react";
 
+const POLL_INTERVAL_MS = 15_000;
+
 export default function NotificationBell() {
   const [items, setItems] = useState([]);
   const [open, setOpen] = useState(false);
   const ref = useRef();
 
   const load = () => api.get("/notifications").then((r) => setItems(r.data)).catch(() => {});
-  useEffect(() => { load(); const t = setInterval(load, 15000); return () => clearInterval(t); }, []);
+  useEffect(() => { load(); const t = setInterval(load, POLL_INTERVAL_MS); return () => clearInterval(t); }, []);
 
   useEffect(() => {
     const onClick = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
