@@ -16,3 +16,6 @@
 
 ## 2026-06 iOS project modernisation
 - ios-app upgraded to Capacitor 8.5.2 (SPM, no CocoaPods), committed Xcode project ios/App/App.xcodeproj, UIScene lifecycle (SceneDelegate), deployment target iOS 16.0, bundle com.summitofficesolution.tradehub, 1024px AppIcon. CI uses macos-26 + Node 22. Cannot compile here (no Xcode).
+
+## 2026-06 Deployment check #2
+- .env ignore patterns had been re-added to .gitignore by an auto-commit; removed again. NOTE for future agents: verify .gitignore has no .env patterns before deploy.
