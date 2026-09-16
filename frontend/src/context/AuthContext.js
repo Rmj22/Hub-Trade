@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useState, useCallback } from "react";
 import { api, errMsg } from "../lib/api";
+import { toast } from "sonner";
 
 const AuthCtx = createContext(null);
 export const useAuth = () => useContext(AuthCtx);
@@ -36,7 +37,7 @@ export function AuthProvider({ children }) {
 
   const logout = async () => {
     try { await api.post("/auth/logout"); }
-    catch (e) { console.error("Logout request failed:", errMsg(e)); }
+    catch (e) { toast.error(errMsg(e)); }
     setUser(false);
   };
 

@@ -4,6 +4,7 @@ import { useAuth } from "../context/AuthContext";
 import { toast } from "sonner";
 import { Check, Loader2 } from "lucide-react";
 import { useNavigate, useSearchParams } from "react-router-dom";
+import { PLAN_PRICES, BILLING_MONTHS } from "../lib/plans";
 
 const PAYMENT_LINKS = {
   startup: process.env.REACT_APP_STRIPE_PAYMENT_LINK_STARTUP,
@@ -12,9 +13,9 @@ const PAYMENT_LINKS = {
 };
 
 const PLANS = [
-  { key: "startup", name: "Startup", price: 60, feats: ["20 employees", "3 vehicles", "10 active jobs", "30 equipment", "5 hrs data-entry"] },
-  { key: "medium", name: "Medium", price: 89, popular: true, feats: ["50 employees", "10 vehicles", "30 active jobs", "60 equipment", "10 hrs data-entry"] },
-  { key: "large", name: "Large", price: 149, feats: ["100 employees", "20 vehicles", "50 active jobs", "120 equipment", "20 hrs data-entry"] },
+  { key: "startup", name: "Startup", price: PLAN_PRICES.startup, feats: ["20 employees", "3 vehicles", "10 active jobs", "30 equipment", "5 hrs data-entry"] },
+  { key: "medium", name: "Medium", price: PLAN_PRICES.medium, popular: true, feats: ["50 employees", "10 vehicles", "30 active jobs", "60 equipment", "10 hrs data-entry"] },
+  { key: "large", name: "Large", price: PLAN_PRICES.large, feats: ["100 employees", "20 vehicles", "50 active jobs", "120 equipment", "20 hrs data-entry"] },
 ];
 
 export function MembershipPage() {
@@ -55,7 +56,7 @@ export function MembershipPage() {
               {p.popular && <div className="absolute -top-3 left-8 px-3 py-1 rounded-full bg-primary text-primary-foreground text-xs font-bold">Popular</div>}
               <h3 className="font-head font-bold text-xl mb-1">{p.name}</h3>
               <div className="flex items-baseline gap-1"><span className="font-head font-extrabold text-4xl">${p.price}</span><span className="text-muted-foreground text-sm">/mo</span></div>
-              <div className="text-xs text-muted-foreground mb-6">${p.price * 6} billed every 6 months</div>
+              <div className="text-xs text-muted-foreground mb-6">${p.price * BILLING_MONTHS} billed every 6 months</div>
               <ul className="space-y-2 mb-8">
                 {p.feats.map((f) => <li key={f} className="flex items-center gap-2 text-sm"><Check className="w-4 h-4 text-primary shrink-0" />{f}</li>)}
               </ul>
@@ -74,6 +75,9 @@ export function MembershipPage() {
   );
 }
 
+const MAX_POLL_TRIES = 8;
+const POLL_DELAY_MS = 2000;
+
 export function PaymentSuccess() {
   const [params] = useSearchParams();
   const nav = useNavigate();
@@ -91,12 +95,11 @@ export function PaymentSuccess() {
       try {
         const { data } = await api.get(`/payments/status/${sid}`);
         if (data.payment_status === "paid") { setStatus("paid"); await refresh(); return; }
-        if (data.status === "expired" || tries > 8) { setStatus("error"); return; }
-      } catch (e) {
-        console.error("Payment status check failed:", errMsg(e));
-        if (tries > 8) { setStatus("error"); return; }
+        if (data.status === "expired" || tries > MAX_POLL_TRIES) { setStatus("error"); return; }
+      } catch {
+        if (tries > MAX_POLL_TRIES) { setStatus("error"); return; }
       }
-      tries += 1; setTimeout(poll, 2000);
+      tries += 1; setTimeout(poll, POLL_DELAY_MS);
     };
     poll();
     return () => { cancelled = true; };

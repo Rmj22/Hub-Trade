@@ -22,7 +22,7 @@ def owner():
     r = s.post(f"{API}/auth/login", json={"email": OWNER_EMAIL, "password": OWNER_PASSWORD})
     assert r.status_code == 200, r.text
     me = s.get(f"{API}/auth/me").json()
-    assert me.get("is_superadmin") == True
+    assert me.get("is_superadmin")
     return {"session": s, "me": me}
 
 
@@ -88,7 +88,7 @@ class TestNotifications:
         latest = after[0]
         assert latest["ticket_id"] == tid
         assert "TEST notif ticket" in latest["message"]
-        assert latest["read"] == False
+        assert not latest["read"]
         assert latest["company_id"] == owner["me"]["company_id"]
         # message references done + note added
         assert "done" in latest["message"] and "note" in latest["message"]
@@ -140,7 +140,7 @@ class TestNotifications:
         assert d1["unread_notifications"] == 0
         # all listed items are now read
         lst = owner["session"].get(f"{API}/notifications").json()
-        assert all(n["read"] == True for n in lst)
+        assert all(n["read"] for n in lst)
 
     def test_mark_single_read(self, owner):
         c = owner["session"].post(f"{API}/data-entry-tickets", json={
@@ -150,12 +150,12 @@ class TestNotifications:
             "status": "done"})
         lst = owner["session"].get(f"{API}/notifications").json()
         nid = lst[0]["id"]
-        assert lst[0]["read"] == False
+        assert not lst[0]["read"]
         r = owner["session"].post(f"{API}/notifications/{nid}/read")
         assert r.status_code == 200
         lst2 = owner["session"].get(f"{API}/notifications").json()
         target = next(n for n in lst2 if n["id"] == nid)
-        assert target["read"] == True
+        assert target["read"]
 
     def test_notification_company_scoping(self, owner, other_company):
         # trigger a notification in owner's company

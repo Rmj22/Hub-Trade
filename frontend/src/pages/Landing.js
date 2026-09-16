@@ -2,6 +2,7 @@ import { Link } from "react-router-dom";
 import { motion } from "framer-motion";
 import { HardHat, ArrowRight, Briefcase, Users, Truck, Wrench, FileText, Clock, Check } from "lucide-react";
 import ThemeToggle from "../components/ThemeToggle";
+import { PLAN_PRICES, BILLING_MONTHS } from "../lib/plans";
 
 const TRADE_TILES = [
   { label: "Framing Crews", img: "https://images.unsplash.com/photo-1646324554833-f0b6a479fa5d?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2NzV8MHwxfHNlYXJjaHwzfHxjb25zdHJ1Y3Rpb24lMjBmcmFtaW5nJTIwY3JldyUyMHdvb2QlMjBmcmFtaW5nfGVufDB8fHx8MTc4NjAzNTgxMXww&ixlib=rb-4.1.0&q=85" },
@@ -11,9 +12,9 @@ const TRADE_TILES = [
 ];
 
 const PLANS = [
-  { key: "startup", name: "Startup", price: 60, link: process.env.REACT_APP_STRIPE_PAYMENT_LINK_STARTUP, feats: ["Up to 20 employees", "3 vehicles", "10 active jobs", "30 equipment pieces", "5 hrs data-entry help"] },
-  { key: "medium", name: "Medium", price: 89, popular: true, link: process.env.REACT_APP_STRIPE_PAYMENT_LINK_MEDIUM, feats: ["Up to 50 employees", "10 vehicles", "30 active jobs", "60 equipment pieces", "10 hrs data-entry help"] },
-  { key: "large", name: "Large", price: 149, link: process.env.REACT_APP_STRIPE_PAYMENT_LINK_LARGE, feats: ["Up to 100 employees", "20 vehicles", "50 active jobs", "120 equipment pieces", "20 hrs data-entry help"] },
+  { key: "startup", name: "Startup", price: PLAN_PRICES.startup, link: process.env.REACT_APP_STRIPE_PAYMENT_LINK_STARTUP, feats: ["Up to 20 employees", "3 vehicles", "10 active jobs", "30 equipment pieces", "5 hrs data-entry help"] },
+  { key: "medium", name: "Medium", price: PLAN_PRICES.medium, popular: true, link: process.env.REACT_APP_STRIPE_PAYMENT_LINK_MEDIUM, feats: ["Up to 50 employees", "10 vehicles", "30 active jobs", "60 equipment pieces", "10 hrs data-entry help"] },
+  { key: "large", name: "Large", price: PLAN_PRICES.large, link: process.env.REACT_APP_STRIPE_PAYMENT_LINK_LARGE, feats: ["Up to 100 employees", "20 vehicles", "50 active jobs", "120 equipment pieces", "20 hrs data-entry help"] },
 ];
 
 const FEATURES = [
@@ -116,7 +117,7 @@ export default function Landing() {
                   <span className="font-head font-extrabold text-4xl">${p.price}</span>
                   <span className="text-muted-foreground text-sm">/mo</span>
                 </div>
-                <div className="text-xs text-muted-foreground mb-6">${p.price * 6} billed every 6 months</div>
+                <div className="text-xs text-muted-foreground mb-6">${p.price * BILLING_MONTHS} billed every 6 months</div>
                 <ul className="space-y-3 mb-8">
                   {p.feats.map((f) => (
                     <li key={f} className="flex items-start gap-2 text-sm"><Check className="w-4 h-4 text-primary mt-0.5 shrink-0" />{f}</li>
