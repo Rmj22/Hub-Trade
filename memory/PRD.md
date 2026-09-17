@@ -26,3 +26,6 @@
 
 ## 2026-06 Custom domain
 - Domain www.trademainhub.com (Namecheap) added to CORS_ORIGINS, Capacitor server.url, Safari extension URLs/manifest. User must add CNAME in Namecheap + custom domain in Emergent Deploy and set CORS_ORIGINS in production env.
+
+## Deployment check #3
+- .env patterns re-added to .gitignore by platform auto-commit for the 3rd time; removed. Always strip before deploy check.
