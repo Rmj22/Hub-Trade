@@ -10,7 +10,7 @@ const LINKS = [
   { label: "Audit Logs", path: "/app/audit-logs" },
 ];
 
-let appUrl = "https://trade-hub-910.emergent.host";
+let appUrl = "https://www.trademainhub.com";
 
 function send(message) {
   return new Promise((resolve) => {

@@ -34,24 +34,36 @@
     "scripting"
   ],
   "host_permissions": [
+    "https://www.trademainhub.com/*",
+    "https://trademainhub.com/*",
     "https://trade-hub-910.emergent.host/*",
     "https://trade-hub-910.preview.emergentagent.com/*"
   ],
   "content_scripts": [
     {
       "matches": [
+        "https://www.trademainhub.com/*",
+        "https://trademainhub.com/*",
         "https://trade-hub-910.emergent.host/*",
         "https://trade-hub-910.preview.emergentagent.com/*"
       ],
-      "js": ["content/content.js"],
-      "css": ["content/content.css"],
+      "js": [
+        "content/content.js"
+      ],
+      "css": [
+        "content/content.css"
+      ],
       "run_at": "document_idle"
     }
   ],
   "web_accessible_resources": [
     {
-      "resources": ["icons/*"],
+      "resources": [
+        "icons/*"
+      ],
       "matches": [
+        "https://www.trademainhub.com/*",
+        "https://trademainhub.com/*",
         "https://trade-hub-910.emergent.host/*",
         "https://trade-hub-910.preview.emergentagent.com/*"
       ]

@@ -33,7 +33,7 @@ jobs:
       - name: Build Hub Trade app .ipa
         working-directory: ios-app
         run: |
-          sed -i '' "s#https://YOUR-DEPLOYED-HUB-TRADE-URL#${{ secrets.HUB_TRADE_URL }}#" capacitor.config.json
+          [ -n "${{ secrets.HUB_TRADE_URL }}" ] && sed -i "" "s#https://www.trademainhub.com#${{ secrets.HUB_TRADE_URL }}#" capacitor.config.json || true
           npm install
           npx cap sync ios
           mkdir -p build

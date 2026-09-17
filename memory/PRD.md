@@ -23,3 +23,6 @@
 ## 2026-06 Code review round 2
 - Split Dashboard/AuditLogs/AdminControl/Estimates/CrudManager into sub-components (components/dashboard, audit, admin, estimates, crud). Removed console.* calls; magic numbers → constants (lib/plans.js, POLL_INTERVAL_MS etc.); test truthiness asserts; random test passwords. Regression: iteration_8.json all pass; pytest 37/37.
 - NOTE: hook-dep findings for module imports (api, errMsg) and `is None` checks in server.py are false positives — intentionally left.
+
+## 2026-06 Custom domain
+- Domain www.trademainhub.com (Namecheap) added to CORS_ORIGINS, Capacitor server.url, Safari extension URLs/manifest. User must add CNAME in Namecheap + custom domain in Emergent Deploy and set CORS_ORIGINS in production env.
