@@ -29,6 +29,7 @@ from starlette.responses import Response as StarletteResponse
 from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel, Field, EmailStr, BeforeValidator, ConfigDict
 from bson import ObjectId
+from estimate_pdf import build_estimate_pdf
 
 # ---------- DB ----------
 client = AsyncIOMotorClient(os.environ["MONGO_URL"])
@@ -611,6 +612,27 @@ async def _est_by_token(token: str):
 async def public_estimate(token: str):
     est, comp = await _est_by_token(token)
     return _public_estimate(est, comp)
+
+
+def _pdf_response(est: dict, comp: dict) -> Response:
+    pdf = build_estimate_pdf(est, comp)
+    name = f"estimate-{str(est['_id'])[-6:].upper()}-{(est.get('customer_name') or 'customer').replace(' ', '_')}.pdf"
+    return Response(content=pdf, media_type="application/pdf", headers={"Content-Disposition": f'inline; filename="{name}"'})
+
+
+@api.get("/public/estimates/{token}/pdf")
+async def public_estimate_pdf(token: str):
+    est, comp = await _est_by_token(token)
+    return _pdf_response(est, comp)
+
+
+@api.get("/estimates/{item_id}/pdf")
+async def estimate_pdf(item_id: str, user: dict = Depends(require_role("owner", "foreman"))):
+    est = await db.estimates.find_one({"_id": _oid(item_id), "company_id": user["company_id"]})
+    if not est:
+        raise HTTPException(404, "Estimate not found")
+    comp = await db.companies.find_one({"_id": ObjectId(user["company_id"])}, {"name": 1})
+    return _pdf_response(est, comp or {})
 
 
 class ApproveReq(BaseModel):

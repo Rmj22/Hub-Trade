@@ -1,8 +1,8 @@
 import { useEffect, useState, useCallback } from "react";
 import { useParams, useSearchParams } from "react-router-dom";
-import { api, errMsg } from "../lib/api";
+import { api, API, errMsg } from "../lib/api";
 import { toast, Toaster } from "sonner";
-import { HardHat, CheckCircle2, PenLine, CreditCard, Loader2 } from "lucide-react";
+import { HardHat, CheckCircle2, PenLine, CreditCard, Loader2, FileDown } from "lucide-react";
 
 const money = (n) => `$${(Number(n) || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const POLL_MS = 2000;
@@ -122,10 +122,16 @@ export default function PublicEstimatePage() {
         {!est && !error && <div className="text-muted-foreground">Loading…</div>}
         {est && (
           <>
-            <div>
-              <div className="text-xs uppercase tracking-[0.2em] text-muted-foreground mb-1">Estimate from</div>
-              <h1 className="font-head font-extrabold text-3xl sm:text-4xl tracking-tight" data-testid="public-company">{est.company_name}</h1>
-              <p className="text-muted-foreground mt-1">Prepared for <span className="font-semibold text-foreground" data-testid="public-customer">{est.customer_name}</span></p>
+            <div className="flex items-start justify-between gap-4 flex-wrap">
+              <div>
+                <div className="text-xs uppercase tracking-[0.2em] text-muted-foreground mb-1">Estimate from</div>
+                <h1 className="font-head font-extrabold text-3xl sm:text-4xl tracking-tight" data-testid="public-company">{est.company_name}</h1>
+                <p className="text-muted-foreground mt-1">Prepared for <span className="font-semibold text-foreground" data-testid="public-customer">{est.customer_name}</span></p>
+              </div>
+              <a href={`${API}/public/estimates/${token}/pdf`} target="_blank" rel="noreferrer" data-testid="public-pdf-btn"
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-md border border-border text-sm font-medium hover:bg-muted transition-colors">
+                <FileDown className="w-4 h-4" /> {est.status === "approved" ? "Download signed PDF" : "Download PDF"}
+              </a>
             </div>
             <div className="border border-border rounded-md bg-card p-6"><LineItems items={est.line_items} total={est.total} /></div>
             {est.notes && <div className="border border-border rounded-md bg-card p-6 text-sm whitespace-pre-wrap" data-testid="public-notes">{est.notes}</div>}

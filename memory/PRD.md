@@ -48,3 +48,6 @@
 
 ## 2026-06 Phase 3 Offline mode v1
 - lib/offline.js: cachedGet (localStorage ht:cache:*), queue (ht:queue) for clock-in/out (+at timestamp) and job-photo (dataUrl→/upload→POST /jobs/{id}/photos), flushQueue on online/Sync now, useOffline hook. public/sw.js app-shell SW (prod only). OfflineBanner in Layout. AuthContext caches /auth/me (ht:user) so offline reload stays logged in. CrudManager/TimeCards/Team read-only cached offline. Backend: TimeCardAction.at (clamped to now), POST /api/jobs/{id}/photos. Tests: iteration_11, iteration_12.
+
+## 2026-06 Estimate PDF
+- backend/estimate_pdf.py (reportlab): branded letter PDF, line items, notes, signature block (signed: name/time/IP/deposit; unsigned: blank line). GET /api/estimates/{id}/pdf (owner/foreman), GET /api/public/estimates/{token}/pdf (customer). Buttons on Estimates card (estimate-pdf-btn) and public page (public-pdf-btn). Verified by rendering PDFs.

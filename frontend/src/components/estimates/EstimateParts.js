@@ -1,4 +1,5 @@
-import { X, Send, Trash2, Upload, Image as ImageIcon } from "lucide-react";
+import { X, Send, Trash2, Upload, Image as ImageIcon, FileDown } from "lucide-react";
+import { API } from "../../lib/api";
 
 const inp = "w-full px-3 py-2 rounded-md border border-input bg-background text-sm focus:ring-2 focus:ring-primary focus:outline-none";
 const lbl = "block text-xs uppercase tracking-wider text-muted-foreground mb-1.5";
@@ -20,6 +21,7 @@ export function EstimateCard({ e, onEdit, onSend, onDelete }) {
       <div className="flex gap-2">
         <button onClick={() => onEdit(e)} data-testid="estimate-edit-btn" className="flex-1 py-2 rounded-md border border-border text-sm font-medium hover:bg-muted transition-colors">Edit</button>
         <button onClick={() => onSend(e.id)} data-testid="estimate-send-btn" className="flex-1 py-2 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:opacity-90 transition-opacity inline-flex items-center justify-center gap-1"><Send className="w-3.5 h-3.5" /> Send</button>
+        <a href={`${API}/estimates/${e.id}/pdf`} target="_blank" rel="noreferrer" data-testid="estimate-pdf-btn" title="Download PDF" className="p-2 rounded-md border border-border hover:bg-muted transition-colors"><FileDown className="w-4 h-4" /></a>
         <button onClick={() => onDelete(e.id)} data-testid="estimate-delete-btn" className="p-2 rounded-md border border-border text-destructive hover:bg-muted transition-colors"><Trash2 className="w-4 h-4" /></button>
       </div>
     </div>
