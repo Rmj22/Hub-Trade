@@ -29,3 +29,6 @@
 
 ## Deployment check #3
 - .env patterns re-added to .gitignore by platform auto-commit for the 3rd time; removed. Always strip before deploy check.
+
+## 2026-06 Free trial code
+- TRIAL_CODE="HUBTRADE10", TRIAL_DAYS="10" in backend/.env. POST /api/membership/redeem-trial (owner). Grants Medium plan, status "trial", one per company (trial_used). /auth/me auto-expires → status "expired", plan None. UI: Membership page redeem box + status line. Verified via curl + screenshot.

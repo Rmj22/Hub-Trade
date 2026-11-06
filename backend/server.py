@@ -222,8 +222,43 @@ async def me(user: dict = Depends(get_current_user)):
     out = clean(user)
     if user.get("company_id"):
         comp = await db.companies.find_one({"_id": ObjectId(user["company_id"])})
+        comp = await _expire_trial(comp) if comp else None
         out["company"] = clean(comp) if comp else None
     return out
+
+
+async def _expire_trial(comp: dict) -> dict:
+    if comp.get("membership_status") != "trial":
+        return comp
+    ends = comp.get("trial_ends_at")
+    if ends and datetime.fromisoformat(ends) > datetime.now(timezone.utc):
+        comp["trial_days_left"] = max(1, (datetime.fromisoformat(ends) - datetime.now(timezone.utc)).days + 1)
+        return comp
+    await db.companies.update_one({"_id": comp["_id"]}, {"$set": {"membership_status": "expired", "plan": None}})
+    return {**comp, "membership_status": "expired", "plan": None}
+
+
+class TrialRedeem(BaseModel):
+    code: str
+
+
+@api.post("/membership/redeem-trial")
+async def redeem_trial(req: TrialRedeem, user: dict = Depends(require_role("owner"))):
+    valid = os.environ["TRIAL_CODE"]
+    days = int(os.environ["TRIAL_DAYS"])
+    if req.code.strip().upper() != valid.upper():
+        raise HTTPException(400, "Invalid trial code")
+    comp = await db.companies.find_one({"_id": ObjectId(user["company_id"])})
+    if comp.get("trial_used"):
+        raise HTTPException(400, "This company has already used its free trial")
+    if comp.get("membership_status") == "active":
+        raise HTTPException(400, "You already have an active membership")
+    ends = datetime.now(timezone.utc) + timedelta(days=days)
+    await db.companies.update_one({"_id": comp["_id"]}, {"$set": {
+        "plan": "medium", "membership_status": "trial", "trial_used": True,
+        "trial_started_at": now_iso(), "trial_ends_at": ends.isoformat()}})
+    await log_audit(user["company_id"], user, f"Redeemed {days}-day free trial code")
+    return {"ok": True, "plan": "medium", "trial_ends_at": ends.isoformat(), "days": days}
 
 
 # ---------- Generic CRUD factory for company-scoped resources ----------
