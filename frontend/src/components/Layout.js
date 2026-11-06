@@ -5,12 +5,13 @@ import ThemeToggle from "./ThemeToggle";
 import NotificationBell from "./NotificationBell";
 import {
   LayoutDashboard, Briefcase, Users, Truck, Wrench, FileText,
-  Clock, MessageSquare, BarChart3, CreditCard, LogOut, Menu, HardHat, X, LifeBuoy, ShieldCheck, ScrollText,
+  Clock, MessageSquare, CalendarDays, BarChart3, CreditCard, LogOut, Menu, HardHat, X, LifeBuoy, ShieldCheck, ScrollText,
 } from "lucide-react";
 
 const NAV = [
   { to: "/app", label: "Dashboard", icon: LayoutDashboard, roles: ["owner", "foreman", "employee"], end: true },
   { to: "/app/jobs", label: "Jobs", icon: Briefcase, roles: ["owner", "foreman", "employee"] },
+  { to: "/app/schedule", label: "Schedule", icon: CalendarDays, roles: ["owner", "foreman", "employee"] },
   { to: "/app/team", label: "Team", icon: Users, roles: ["owner"] },
   { to: "/app/vehicles", label: "Vehicles", icon: Truck, roles: ["owner", "foreman"] },
   { to: "/app/equipment", label: "Equipment", icon: Wrench, roles: ["owner", "foreman"] },

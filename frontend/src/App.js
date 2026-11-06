@@ -5,7 +5,9 @@ import Layout from "./components/Layout";
 import Landing from "./pages/Landing";
 import { LoginPage, RegisterPage } from "./pages/Auth";
 import Dashboard from "./pages/Dashboard";
-import { JobsPage, VehiclesPage, EquipmentPage } from "./pages/Resources";
+import { VehiclesPage, EquipmentPage } from "./pages/Resources";
+import JobsPage from "./pages/Jobs";
+import SchedulePage from "./pages/Schedule";
 import TeamPage from "./pages/Team";
 import EstimatesPage from "./pages/Estimates";
 import TimeCardsPage from "./pages/TimeCards";
@@ -37,6 +39,7 @@ function App() {
           <Route path="/payment/success" element={<PaymentSuccess />} />
           <Route path="/app" element={<Protected><Dashboard /></Protected>} />
           <Route path="/app/jobs" element={<Protected><JobsPage /></Protected>} />
+          <Route path="/app/schedule" element={<Protected><SchedulePage /></Protected>} />
           <Route path="/app/team" element={<Protected roles={["owner"]}><TeamPage /></Protected>} />
           <Route path="/app/vehicles" element={<Protected roles={["owner", "foreman"]}><VehiclesPage /></Protected>} />
           <Route path="/app/equipment" element={<Protected roles={["owner", "foreman"]}><EquipmentPage /></Protected>} />

@@ -8,14 +8,14 @@ const badge = (v, map) => {
 const GREEN = "bg-green-500/15 text-green-500";
 const PRIMARY = "bg-primary/20 text-primary";
 
-const JOB_COLUMNS = [
+export const JOB_COLUMNS = [
   { key: "name", label: "Job" },
   { key: "customer_name", label: "Customer" },
   { key: "status", label: "Status", render: (it) => badge(it.status, { active: GREEN, behind: "bg-destructive/15 text-destructive", completed: "bg-blue-500/15 text-blue-500" }) },
   { key: "due_date", label: "Due" },
   { key: "material_cost", label: "Materials", render: (it) => `$${(it.material_cost || 0).toLocaleString()}` },
 ];
-const JOB_FIELDS = [
+export const JOB_FIELDS = [
   { key: "name", label: "Job Name", type: "text" },
   { key: "customer_name", label: "Customer Name", type: "text" },
   { key: "address", label: "Address", type: "text" },
@@ -66,10 +66,6 @@ const EQUIPMENT_FIELDS = [
   { key: "service_reminder", label: "Service Reminder", type: "date" },
   { key: "hours_used", label: "Hours of Use", type: "number" },
 ];
-
-export function JobsPage() {
-  return <CrudManager title="Jobs" endpoint="jobs" testid="jobs" columns={JOB_COLUMNS} fields={JOB_FIELDS} />;
-}
 
 export function VehiclesPage() {
   return <CrudManager title="Vehicles" endpoint="vehicles" testid="vehicles" columns={VEHICLE_COLUMNS} fields={VEHICLE_FIELDS} />;

@@ -393,6 +393,80 @@ api.include_router(crud_router("vehicles", "vehicles", Vehicle))
 api.include_router(crud_router("equipment", "equipment", Equipment))
 
 
+# ---------- Crew assignment ----------
+class CrewAssign(BaseModel):
+    assigned_employees: List[str] = []
+    assigned_vehicles: List[str] = []
+    assigned_equipment: List[str] = []
+
+
+async def _valid_ids(coll: str, cid: str, ids: List[str]) -> List[str]:
+    oids = [ObjectId(i) for i in ids if ObjectId.is_valid(i)]
+    docs = await db[coll].find({"_id": {"$in": oids}, "company_id": cid}, {"_id": 1}).to_list(1000)
+    return [str(d["_id"]) for d in docs]
+
+
+@api.put("/jobs/{job_id}/crew")
+async def assign_crew(job_id: str, req: CrewAssign, user: dict = Depends(require_role("owner", "foreman"))):
+    cid = user["company_id"]
+    job = await db.jobs.find_one({"_id": ObjectId(job_id), "company_id": cid})
+    if not job:
+        raise HTTPException(404, "Job not found")
+    emps = await _valid_ids("employees", cid, req.assigned_employees)
+    vehs = await _valid_ids("vehicles", cid, req.assigned_vehicles)
+    eqs = await _valid_ids("equipment", cid, req.assigned_equipment)
+    await db.jobs.update_one({"_id": job["_id"]}, {"$set": {"assigned_employees": emps, "assigned_vehicles": vehs, "assigned_equipment": eqs}})
+    new_emps = set(emps) - set(job.get("assigned_employees", []))
+    if new_emps:
+        names = await db.employees.find({"_id": {"$in": [ObjectId(i) for i in new_emps]}}, {"name": 1}).to_list(100)
+        for n in names:
+            await db.notifications.insert_one({"company_id": cid, "message": f"{n['name']} assigned to job: {job['name']}",
+                                               "type": "assignment", "job_id": job_id, "employee_id": str(n["_id"]), "read": False, "created_at": now_iso()})
+    await log_audit(cid, user, f"Updated crew on job: {job['name']}")
+    return clean(await db.jobs.find_one({"_id": job["_id"]}))
+
+
+# ---------- Daily schedule ----------
+class ScheduleEntry(BaseModel):
+    date: str  # YYYY-MM-DD
+    job_id: str
+    employee_ids: List[str] = []
+    vehicle_ids: List[str] = []
+    equipment_ids: List[str] = []
+    notes: str = ""
+
+
+@api.get("/schedule")
+async def list_schedule(start: str = Query(...), end: str = Query(...), user: dict = Depends(get_current_user)):
+    cid = user["company_id"]
+    rows = await db.schedule.find({"company_id": cid, "date": {"$gte": start, "$lte": end}}).sort("date", 1).to_list(2000)
+    return [clean(r) for r in rows]
+
+
+@api.put("/schedule")
+async def upsert_schedule(req: ScheduleEntry, user: dict = Depends(require_role("owner", "foreman"))):
+    cid = user["company_id"]
+    job = await db.jobs.find_one({"_id": ObjectId(req.job_id), "company_id": cid}, {"name": 1})
+    if not job:
+        raise HTTPException(404, "Job not found")
+    doc = {"company_id": cid, "date": req.date, "job_id": req.job_id, "notes": req.notes,
+           "employee_ids": await _valid_ids("employees", cid, req.employee_ids),
+           "vehicle_ids": await _valid_ids("vehicles", cid, req.vehicle_ids),
+           "equipment_ids": await _valid_ids("equipment", cid, req.equipment_ids),
+           "updated_at": now_iso(), "updated_by": user.get("name", "")}
+    await db.schedule.update_one({"company_id": cid, "date": req.date, "job_id": req.job_id}, {"$set": doc}, upsert=True)
+    await log_audit(cid, user, f"Scheduled {job['name']} for {req.date}")
+    return clean(await db.schedule.find_one({"company_id": cid, "date": req.date, "job_id": req.job_id}))
+
+
+@api.delete("/schedule/{entry_id}")
+async def delete_schedule(entry_id: str, user: dict = Depends(require_role("owner", "foreman"))):
+    res = await db.schedule.delete_one({"_id": ObjectId(entry_id), "company_id": user["company_id"]})
+    if not res.deleted_count:
+        raise HTTPException(404, "Entry not found")
+    return {"ok": True}
+
+
 # ---------- Estimates (custom for email) ----------
 @api.get("/estimates")
 async def list_estimates(user: dict = Depends(get_current_user)):
