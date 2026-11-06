@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api, errMsg } from "../lib/api";
+import { cachedGet } from "../lib/offline";
 import { toast } from "sonner";
 import { Plus, X, UserPlus, Trash2 } from "lucide-react";
 import CrudManager from "../components/CrudManager";
@@ -12,7 +13,7 @@ export default function TeamPage() {
   const [members, setMembers] = useState([]);
   const [modal, setModal] = useState(null);
 
-  const load = () => api.get("/team").then((r) => setMembers(r.data)).catch((e) => toast.error(errMsg(e)));
+  const load = () => cachedGet("/team").then((r) => setMembers(r.data)).catch((e) => toast.error(errMsg(e)));
   useEffect(() => { load(); }, []);
 
   const changeRole = async (id, role) => {

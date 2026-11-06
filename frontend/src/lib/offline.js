@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback } from "react";
 import { api } from "./api";
+import { toast } from "sonner";
 
 const CACHE_PREFIX = "ht:cache:";
 const QUEUE_KEY = "ht:queue";
@@ -69,7 +70,7 @@ export function useOffline() {
   const [online, setOnline] = useState(isOnline());
   const [pending, setPending] = useState(getQueue().length);
   useEffect(() => {
-    const on = () => { setOnline(true); flushQueue(); };
+    const on = () => { setOnline(true); flushQueue().then((r) => { if (r.synced) toast.success(`Synced ${r.synced} offline action${r.synced === 1 ? "" : "s"}`); }); };
     const off = () => setOnline(false);
     const change = () => setPending(getQueue().length);
     window.addEventListener("online", on); window.addEventListener("offline", off); window.addEventListener(EVENT, change);

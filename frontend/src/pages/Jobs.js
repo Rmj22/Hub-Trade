@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Users, Camera } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import { useOffline } from "../lib/offline";
@@ -19,10 +19,12 @@ const COLUMNS = [
 
 export default function JobsPage() {
   const { user } = useAuth();
-  const { online } = useOffline();
+  const { online, pending } = useOffline();
   const [crewJob, setCrewJob] = useState(null);
   const [photoJob, setPhotoJob] = useState(null);
   const canAssign = user?.role !== "employee";
+  const [reloadKey, setReloadKey] = useState(0);
+  useEffect(() => { if (online && pending === 0) setReloadKey((k) => k + 1); }, [online, pending]);
 
   const renderExtra = (it, reload) => (
     <>
@@ -37,7 +39,7 @@ export default function JobsPage() {
 
   return (
     <>
-      <CrudManager title="Jobs" endpoint="jobs" testid="jobs" columns={COLUMNS} fields={JOB_FIELDS} canWrite={canAssign} renderExtra={renderExtra} />
+      <CrudManager key={reloadKey} title="Jobs" endpoint="jobs" testid="jobs" columns={COLUMNS} fields={JOB_FIELDS} canWrite={canAssign} renderExtra={renderExtra} />
       {crewJob && <CrewModal job={crewJob} onClose={() => setCrewJob(null)} onSaved={() => crewJob._reload()} />}
       {photoJob && <JobPhotosModal job={photoJob} onClose={() => { setPhotoJob(null); photoJob._reload(); }} />}
     </>

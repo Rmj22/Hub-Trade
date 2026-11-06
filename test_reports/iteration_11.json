@@ -1,0 +1,49 @@
+{
+  "summary": "Tested Offline mode v1 (backend + frontend). Backend: 9/9 pytest pass (timecard `at` timestamps, future clamp, invalid at fallback, clock-out-before-in => 0h, job photos auth/404/persist). Frontend: online clock in/out OK; offline clock-in/out queues to ht:queue, status 'On site · pending'/'Off · pending', banner '(1 pending)'; auto-flush on reconnect works and server clock_in == offline action time with offline_synced=true; 'Sync now' button path works (toast 'Synced 1 offline action'). Jobs/Vehicles/Equipment offline show *-cached label, no add/edit/delete/crew, rows listed; photos btn kept. Job photos online upload + caption + count increment OK; offline photo queued ('1 photo waiting to upload') and auto-uploads on reconnect (API has photo with caption + taken_at). Employee role: photos btn visible, no crew/edit/add, Time Cards works. Regression: Dashboard/Schedule/Estimates load, crew modal opens. FAILURES: page reload while offline logs the user out (redirect to /login) so cached data is never shown after reload; no toast on auto-sync; photos modal & Photos count don't refresh after a sync; Team accounts page not offline-aware.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "GET /api/files/{path}", "issue": "No auth check at all (auth/authorization params unused) - any uploaded job photo/estimate file is downloadable unauthenticated by path (verified 200 without cookie). Job photos now increase exposure."},
+      {"endpoint": "POST /api/jobs/{id}/photos", "issue": "`path` is not validated to belong to the caller's company (db.files company_id) - can attach arbitrary/other-company storage path."},
+      {"endpoint": "POST /api/timecards/clock-in", "issue": "employee_id not validated to belong to user's company (pre-existing); offline-synced items with deleted employees produce 'Unknown' rows."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "AuthContext / offline reload", "issue": "Reloading the app while offline (simulated via route abort of **/api/**) -> /auth/me network error -> setUser(false) -> redirected to /login. Requirement 'reload page offline -> Time Cards still renders from cache with pending state' FAILS. In production with SW this will log field workers out whenever they open the app without signal.", "selector": "[data-testid=timecards-page]", "priority": "HIGH"},
+      {"component": "JobPhotosModal", "issue": "After a queued photo syncs (auto or Sync now) while modal is open, modal still shows 'No photos yet' / stale list - photos state is initialised from job.photos and never refreshed; queued list is read via getQueue() only on render.", "selector": "[data-testid=job-photo]", "priority": "MEDIUM"},
+      {"component": "Jobs Photos column", "issue": "After reconnect auto-sync the Photos count stays stale (CrudManager reloads on `online` change, before flush completes). Needs reload after flush (listen to ht:offline-change / pending->0).", "selector": "[data-testid=job-photo-count]", "priority": "MEDIUM"},
+      {"component": "Team page offline", "issue": "Team accounts list uses plain api.get('/team') (not cached): offline shows empty table, 4x 'Network Error' toasts, and Add member / role select / remove still enabled. Employees CrudManager there has no cache unless visited online in that session.", "selector": "[data-testid=add-member-btn]", "priority": "LOW"}
+    ],
+    "integration_issues": [
+      {"flow": "Auto-sync on reconnect", "issue": "useOffline 'online' handler calls flushQueue() silently - no 'Synced N offline action' toast (toast only shown from Sync now button). Spec expects toast.", "affected_selectors": ["[data-testid=offline-banner]"]},
+      {"flow": "Sync now while modal open", "issue": "Modal backdrop (fixed inset-0 z-50) covers OfflineBanner; with job photos modal open, Sync now click did not sync. Also sonner toasts (top-right) overlap the Sync now button.", "affected_selectors": ["[data-testid=offline-sync-btn]"]}
+    ],
+    "design_issues": [
+      {"screen": "Header/Banner", "issues": ["Top-right toasts cover the Sync now button and header icons for several seconds"]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/test_offline_mode.py", "/app/test_reports/pytest/pytest_offline.xml"],
+  "action_items": [
+    "Persist last /auth/me user in localStorage and, on network error (no e.response), keep user logged in from cache instead of setUser(false) so offline reload works",
+    "Show success toast after auto flush on 'online' (e.g. have flushQueue notify results, or banner handles online event)",
+    "In JobPhotosModal subscribe to ht:offline-change and refetch GET /jobs/{id} after queue flush; trigger CrudManager reload when pending goes to 0",
+    "Make Team accounts page offline-aware (cachedGet + hide write actions offline)",
+    "Add auth check (company scoping) to GET /api/files/{path}; validate photo path belongs to company",
+    "Clear ht:cache:* and ht:queue (or key them by user id) on logout to avoid cross-user data leak / syncing another user's actions",
+    "Guard enqueue against localStorage QuotaExceededError (full-size camera photos as base64 dataUrl easily exceed 5MB) - currently throws inside pick() and leaves busy=true; consider IndexedDB or resizing images before queueing"
+  ],
+  "critical_code_review_comments": [
+    "offline.js flushQueue: non-network errors (incl. 401 expired session, 400 'Already clocked in') silently drop the queued item -> offline data loss; at least keep 401 items and surface failed ones",
+    "JobPhotosModal.pick: readAsDataUrl + enqueue not wrapped in try/catch -> quota error leaves button stuck on '…'",
+    "TimeCards load(): when online fetch succeeds it clears ht:local-active even if queue still has pending items (e.g. mount online with queued items after failed sync) -> pending indicator lost",
+    "Multiple useOffline instances each call flushQueue on 'online' (guarded by module flag, OK) but none reload data afterwards"
+  ],
+  "updated_files": ["/app/backend/tests/test_offline_mode.py"],
+  "success_rate": {"backend": "100% (9/9)", "frontend": "~75% (core queue/sync/cache works; offline reload, post-sync refresh, auto-sync toast fail)"},
+  "seed_data_creation": "Created and deleted TEST_PhotoJob, TEST_PhotoJob2, TEST_Offline Job, TEST_Offline Emp, TEST employee member. Mike Rivera got extra short timecards (clocked in/out, left Off). Uploaded a few tiny test files to storage.",
+  "retest_needed": true,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "App routes are under /app/* (e.g. /app/timecards, /app/jobs). Use ctx.set_offline(True) for offline after priming caches by visiting pages online; to simulate 'online but sync pending' use page.route('**/api/**', abort) then set_offline(False), then unroute + click offline-sync-btn (close modals first). Offline reload must use route abort (set_offline blocks the HTML in preview, no SW). Run backend tests: TEST_OWNER_PASSWORD='BuildIt2026!' REACT_APP_BACKEND_URL=... pytest backend/tests/test_offline_mode.py",
+  "rca of the issue": "Offline reload logout: AuthContext.refresh catches any error from /auth/me and sets user=false; Protected then redirects to /login. Fix: on network error, fall back to cached user. Stale photos after sync: JobPhotosModal keeps local photos state from props and Jobs list reload fires on online event before flushQueue finishes."
+}

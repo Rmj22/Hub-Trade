@@ -1,17 +1,23 @@
-import { useRef, useState } from "react";
+import { useRef, useState, useEffect } from "react";
 import { X, Camera, Image as ImageIcon, CloudOff } from "lucide-react";
 import { api, API, errMsg } from "../../lib/api";
-import { enqueue, isOnline, isNetworkError, getQueue } from "../../lib/offline";
+import { enqueue, isOnline, isNetworkError, getQueue, useOffline } from "../../lib/offline";
 import { toast } from "sonner";
 
 const readAsDataUrl = (file) => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(file); });
 
 export function JobPhotosModal({ job, onClose, onSaved }) {
   const fileRef = useRef();
+  const { online, pending } = useOffline();
   const [photos, setPhotos] = useState(job.photos || []);
   const [caption, setCaption] = useState("");
   const [busy, setBusy] = useState(false);
   const queued = getQueue().filter((q) => q.type === "job-photo" && q.jobId === job.id);
+
+  useEffect(() => {
+    if (!online) return;
+    api.get(`/jobs/${job.id}`).then((r) => { setPhotos(r.data.photos || []); onSaved?.(); }).catch(() => {});
+  }, [online, pending, job.id, onSaved]);
 
   const pick = async (e) => {
     const file = e.target.files[0]; if (!file) return;

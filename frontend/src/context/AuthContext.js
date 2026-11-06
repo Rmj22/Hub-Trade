@@ -3,6 +3,7 @@ import { api, errMsg } from "../lib/api";
 import { toast } from "sonner";
 
 const AuthCtx = createContext(null);
+const USER_CACHE_KEY = "ht:user";
 export const useAuth = () => useContext(AuthCtx);
 
 export function AuthProvider({ children }) {
@@ -12,10 +13,12 @@ export function AuthProvider({ children }) {
     try {
       const { data } = await api.get("/auth/me");
       setUser(data);
+      localStorage.setItem(USER_CACHE_KEY, JSON.stringify(data));
       return data;
-    } catch {
-      setUser(false);
-      return false;
+    } catch (e) {
+      const cached = !e?.response ? JSON.parse(localStorage.getItem(USER_CACHE_KEY) || "null") : null;
+      setUser(cached || false);
+      return cached || false;
     }
   }, []);
 
@@ -38,6 +41,7 @@ export function AuthProvider({ children }) {
   const logout = async () => {
     try { await api.post("/auth/logout"); }
     catch (e) { toast.error(errMsg(e)); }
+    localStorage.removeItem(USER_CACHE_KEY);
     setUser(false);
   };
 
