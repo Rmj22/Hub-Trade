@@ -16,8 +16,14 @@ import bcrypt
 import jwt
 import stripe
 import httpx
+import re
+import hmac
+import ipaddress
+from html import escape
+from html.parser import HTMLParser
+from urllib.parse import urlparse
 import requests
-from fastapi import FastAPI, APIRouter, HTTPException, Request, Response, Depends, UploadFile, File, Header, Query
+from fastapi import FastAPI, APIRouter, HTTPException, Request, Response, Depends, UploadFile, File, Header, Query, BackgroundTasks
 from starlette.middleware.cors import CORSMiddleware
 from starlette.responses import Response as StarletteResponse
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -449,6 +455,85 @@ async def send_estimate(item_id: str, user: dict = Depends(require_role("owner",
       </td></tr>
     </table>"""
     payload = {"to": [est["customer_email"]], "subject": f"Your estimate from {comp.get('name','Hub Trade')}", "html": html, "from_name": EMAIL_FROM_NAME}
+    await _post_email(payload)
+    await db.estimates.update_one({"_id": ObjectId(item_id)}, {"$set": {"status": "sent", "sent_at": now_iso()}})
+    await log_audit(user["company_id"], user, f"Sent estimate to {est.get('customer_email')}")
+    return {"status": "sent"}
+
+
+_SHORTENERS = ("bit.ly", "tinyurl.com", "t.co", "is.gd", "cutt.ly", "goo.gl", "rebrand.ly")
+_CRED_ASK = ("reply with your password", "reply with the code", "send your password", "cvv", "send us your password",
+             "enter your password below", "confirm your card number", "your full card number", "seed phrase",
+             "recovery phrase", "verify your card", "social security number", "confirm your bank details")
+_HOSTISH = re.compile(r"\b(?:https?://)?((?:[a-z0-9-]+\.)+[a-z]{2,})", re.I)
+
+
+def _host_ok(host: str) -> bool:
+    if not host or "xn--" in host:
+        return False
+    try:
+        ipaddress.ip_address(host)
+        return False
+    except ValueError:
+        pass
+    return not any(host == s or host.endswith("." + s) for s in _SHORTENERS)
+
+
+def _same_site(shown: str, real: str) -> bool:
+    return shown == real or real.endswith("." + shown) or shown.endswith("." + real)
+
+
+class _EmailScan(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.tags, self.urls, self.anchors = set(), [], []
+        self._href, self._text = None, []
+
+    def handle_starttag(self, tag, attrs):
+        self.tags.add(tag.lower())
+        self.urls += [v for k, v in attrs if k.lower() in ("href", "src") and v]
+        if tag.lower() == "a":
+            self._href = dict((k.lower(), v) for k, v in attrs).get("href")
+            self._text = []
+
+    def handle_data(self, data):
+        if self._href is not None:
+            self._text.append(data)
+
+    def handle_endtag(self, tag):
+        if tag.lower() == "a" and self._href is not None:
+            self.anchors.append((self._href, "".join(self._text)))
+            self._href, self._text = None, []
+
+
+def _assert_safe_email(subject: str, html: str) -> None:
+    scan = _EmailScan(); scan.feed(html)
+    if scan.tags & {"form", "input", "textarea", "select"}:
+        raise ValueError("No forms or input fields in email (G2)")
+    body = f"{subject}\n{html}".lower()
+    for p in _CRED_ASK:
+        if p in body:
+            raise ValueError(f"Email asks the recipient for credentials: {p!r} (G2)")
+    for url in scan.urls:
+        low = url.strip().lower()
+        if low.startswith(("mailto:", "tel:", "cid:", "#")):
+            continue
+        if not low.startswith("https://"):
+            raise ValueError(f"Email links/assets must be absolute https: {url!r} (G3)")
+        host = urlparse(low).hostname or ""
+        if not _host_ok(host) or urlparse(low).username is not None:
+            raise ValueError(f"Shortened, numeric-host or credential-bearing URL: {url!r} (G3)")
+    for href, text in scan.anchors:
+        real = urlparse(href.strip().lower()).hostname or ""
+        if not real:
+            continue
+        for m in _HOSTISH.finditer(text):
+            if not _same_site(m.group(1).lower(), real):
+                raise ValueError(f"Anchor text {m.group(1)!r} ≠ real link host {real!r} (G3)")
+
+
+async def _post_email(payload: dict) -> None:
+    _assert_safe_email(payload["subject"], payload["html"])
     try:
         async with httpx.AsyncClient(timeout=30) as c:
             resp = await c.post(f"{EMAIL_BASE_URL}/api/v1/email/send", headers={"X-Email-Key": EMAIL_KEY}, json=payload)
@@ -456,9 +541,62 @@ async def send_estimate(item_id: str, user: dict = Depends(require_role("owner",
     except Exception as e:
         logger.error(f"email failed {e}")
         raise HTTPException(502, "Failed to send email")
-    await db.estimates.update_one({"_id": ObjectId(item_id)}, {"$set": {"status": "sent", "sent_at": now_iso()}})
-    await log_audit(user["company_id"], user, f"Sent estimate to {est.get('customer_email')}")
-    return {"status": "sent"}
+
+
+# ---------- Trial reminder cron ----------
+TRIAL_REMINDER_DAYS = 2
+
+
+def _trial_reminder_html(owner_name: str, company_name: str, ends: datetime) -> str:
+    link = f"{FRONTEND_URL}/app/membership"
+    return f"""
+    <table width='100%' style='font-family:Arial,sans-serif;max-width:600px;margin:auto'>
+      <tr><td style='padding:24px'>
+      <h2 style='color:#FF3B30;margin:0 0 12px'>Your Hub Trade trial ends soon</h2>
+      <p>Hi {escape(owner_name)},</p>
+      <p>The free trial for <b>{escape(company_name)}</b> ends on <b>{ends.strftime('%B %d, %Y')}</b>.
+      Keep your jobs, crew, equipment and time cards running without interruption by choosing a plan now.</p>
+      <p style='margin:28px 0'><a href='{link}' style='background:#FF3B30;color:#fff;padding:14px 24px;border-radius:6px;text-decoration:none;font-weight:bold'>Upgrade my plan</a></p>
+      <p style='color:#555;font-size:13px'>Plans start at $60/mo, billed every 6 months. Your data is kept safe either way.</p>
+      <p style='color:#888;font-size:12px'>Sent by {escape(EMAIL_FROM_NAME)}. We never ask for your password or card details by email.</p>
+      </td></tr>
+    </table>"""
+
+
+async def run_trial_reminders() -> int:
+    now = datetime.now(timezone.utc)
+    horizon = (now + timedelta(days=TRIAL_REMINDER_DAYS)).isoformat()
+    comps = await db.companies.find({"membership_status": "trial", "trial_reminder_sent": {"$ne": True},
+                                     "trial_ends_at": {"$gt": now.isoformat(), "$lte": horizon}}).to_list(500)
+    sent = 0
+    for comp in comps:
+        owners = await db.users.find({"company_id": str(comp["_id"]), "role": "owner"}, {"email": 1, "name": 1}).to_list(10)
+        ends = datetime.fromisoformat(comp["trial_ends_at"])
+        for o in owners:
+            try:
+                await _post_email({"to": [o["email"]], "subject": f"Your Hub Trade free trial ends in {TRIAL_REMINDER_DAYS} days",
+                                   "html": _trial_reminder_html(o.get("name") or "there", comp.get("name", ""), ends), "from_name": EMAIL_FROM_NAME})
+                sent += 1
+            except HTTPException:
+                continue
+        await db.companies.update_one({"_id": comp["_id"]}, {"$set": {"trial_reminder_sent": True, "trial_reminder_sent_at": now_iso()}})
+    logger.info(f"trial reminders sent: {sent}")
+    return sent
+
+
+@api.post("/cron/trial-reminders")
+async def cron_trial_reminders(background: BackgroundTasks, authorization: str = Header(None), x_webhook_id: str = Header(None)):
+    # Cron endpoints must ack 2xx immediately; enqueue/background the actual work.
+    expected = os.environ["WEBHOOK_CRON_SECRET"]
+    token = authorization.split(" ", 1)[1] if authorization and authorization.lower().startswith("bearer ") else ""
+    if not hmac.compare_digest(token, expected):
+        raise HTTPException(401, "Unauthorized")
+    run_id = x_webhook_id or str(uuid.uuid4())
+    if await db.cron_runs.find_one({"run_id": run_id}):
+        return {"status": "duplicate"}
+    await db.cron_runs.insert_one({"run_id": run_id, "job": "trial-reminders", "created_at": now_iso()})
+    background.add_task(run_trial_reminders)
+    return {"status": "accepted"}
 
 
 # ---------- File upload ----------

@@ -1,0 +1,8 @@
+crons:
+  - name: trial-reminders
+    description: "Emails owners whose free trial ends within 2 days with an upgrade link, daily at 14:00 UTC"
+    cron: "0 14 * * *"
+    endpoint: "{{BASE_URL}}/api/cron/trial-reminders"
+    method: POST
+    # Cron endpoints must ack 2xx immediately; enqueue/background the actual work.
+    enabled: true

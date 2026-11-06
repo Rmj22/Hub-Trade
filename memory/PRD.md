@@ -32,3 +32,7 @@
 
 ## 2026-06 Free trial code
 - TRIAL_CODE="HUBTRADE10", TRIAL_DAYS="10" in backend/.env. POST /api/membership/redeem-trial (owner). Grants Medium plan, status "trial", one per company (trial_used). /auth/me auto-expires → status "expired", plan None. UI: Membership page redeem box + status line. Verified via curl + screenshot.
+
+## 2026-06 Trial reminder email
+- .emergent/crons.yml: trial-reminders daily 14:00 UTC → POST /api/cron/trial-reminders (Bearer WEBHOOK_CRON_SECRET, idempotent via X-Webhook-Id in db.cron_runs, BackgroundTasks). run_trial_reminders() emails owners of trial companies ending within 2 days (once, trial_reminder_sent flag) with FRONTEND_URL/app/membership upgrade link. Added _assert_safe_email gate + _post_email helper (also used by estimate send). Verified: 401 no auth, accepted, duplicate, email 202 to delivered@resend.dev.
+- Production: add WEBHOOK_CRON_SECRET, TRIAL_CODE, TRIAL_DAYS, FRONTEND_URL=https://www.trademainhub.com to Deployments → Secrets.
