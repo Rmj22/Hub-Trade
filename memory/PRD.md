@@ -39,3 +39,9 @@
 
 ## 2026-06 Trial ended email
 - run_trial_ended() in same daily cron: companies with trial_ends_at <= now → set expired/plan None, email owners "trial has ended" with Reactivate link, once (trial_ended_email_sent). Verified: sent 1, re-run sent 0.
+
+## 2026-06 Phase 1+2 (roadmap)
+- Crew Assignment: PUT /api/jobs/{id}/crew, CrewModal on Jobs page (pages/Jobs.js), assignment notifications. Job PUT uses exclude_unset so crew not wiped.
+- Schedule: db.schedule {date,job_id,employee_ids,vehicle_ids,equipment_ids,notes}; GET/PUT(upsert, id for move)/DELETE /api/schedule; pages/Schedule.js (week strip + day detail). Local-date keys.
+- Estimate approval+deposit: Estimate.deposit_percent (default 25), public_token on send, email link FRONTEND_URL/estimate/{token}; GET /api/public/estimates/{token}, POST .../approve (e-signature), POST .../deposit → Stripe Checkout (mode payment, sandbox key); _fulfil_payment handles kind=deposit via status poll + webhook. pages/PublicEstimate.js. Tests: iteration_9, iteration_10 pass (resend status bug fixed).
+- Phase 3 pending: Offline mode (clock-in/out + photos queued, cached jobs/crew read-only).

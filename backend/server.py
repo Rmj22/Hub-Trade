@@ -341,6 +341,19 @@ class MessageReq(BaseModel):
 class TimeCardAction(BaseModel):
     employee_id: str
     job_id: Optional[str] = None
+    at: Optional[str] = None  # ISO timestamp from offline-queued actions
+
+
+def _action_time(at: Optional[str]) -> datetime:
+    if not at:
+        return datetime.now(timezone.utc)
+    try:
+        t = datetime.fromisoformat(at.replace("Z", "+00:00"))
+        if t.tzinfo is None:
+            t = t.replace(tzinfo=timezone.utc)
+        return min(t, datetime.now(timezone.utc))
+    except ValueError:
+        return datetime.now(timezone.utc)
 
 
 def crud_router(name: str, collection: str, Model, create_roles=("owner", "foreman")):
@@ -566,7 +579,8 @@ async def send_estimate(item_id: str, user: dict = Depends(require_role("owner",
     </table>"""
     payload = {"to": [est["customer_email"]], "subject": f"Your estimate from {comp.get('name','Hub Trade')}", "html": html, "from_name": EMAIL_FROM_NAME}
     await _post_email(payload)
-    await db.estimates.update_one({"_id": ObjectId(item_id)}, {"$set": {"status": "sent", "sent_at": now_iso()}})
+    status_upd = {"sent_at": now_iso()} if est.get("status") == "approved" else {"status": "sent", "sent_at": now_iso()}
+    await db.estimates.update_one({"_id": ObjectId(item_id)}, {"$set": status_upd})
     await log_audit(user["company_id"], user, f"Sent estimate to {est.get('customer_email')}")
     return {"status": "sent", "link": link}
 
@@ -869,7 +883,7 @@ async def clock_in(req: TimeCardAction, user: dict = Depends(get_current_user)):
     if existing:
         raise HTTPException(400, "Already clocked in")
     doc = {"employee_id": req.employee_id, "job_id": req.job_id, "company_id": user["company_id"],
-           "clock_in": now_iso(), "clock_out": None, "created_at": now_iso()}
+           "clock_in": _action_time(req.at).isoformat(), "clock_out": None, "created_at": now_iso(), "offline_synced": bool(req.at)}
     res = await db.timecards.insert_one(doc)
     doc["_id"] = res.inserted_id
     emp = await db.employees.find_one({"_id": ObjectId(req.employee_id)}) if ObjectId.is_valid(req.employee_id) else None
@@ -883,7 +897,7 @@ async def clock_out(req: TimeCardAction, user: dict = Depends(get_current_user))
     if not tc:
         raise HTTPException(400, "Not clocked in")
     ci = datetime.fromisoformat(tc["clock_in"])
-    out = datetime.now(timezone.utc)
+    out = max(_action_time(req.at), ci)
     hours = round((out - ci).total_seconds() / 3600, 2)
     await db.timecards.update_one({"_id": tc["_id"]}, {"$set": {"clock_out": out.isoformat(), "hours": hours}})
     tc = await db.timecards.find_one({"_id": tc["_id"]})
@@ -896,6 +910,24 @@ async def clock_out(req: TimeCardAction, user: dict = Depends(get_current_user))
 async def list_timecards(user: dict = Depends(get_current_user)):
     items = await db.timecards.find({"company_id": user["company_id"]}).sort("_id", -1).to_list(1000)
     return [clean(i) for i in items]
+
+
+class JobPhoto(BaseModel):
+    path: str
+    caption: str = ""
+    taken_at: Optional[str] = None
+
+
+@api.post("/jobs/{job_id}/photos")
+async def add_job_photo(job_id: str, req: JobPhoto, user: dict = Depends(get_current_user)):
+    job = await db.jobs.find_one({"_id": _oid(job_id), "company_id": user["company_id"]}, {"name": 1})
+    if not job:
+        raise HTTPException(404, "Job not found")
+    photo = {"id": str(uuid.uuid4()), "path": req.path, "caption": req.caption, "taken_at": req.taken_at or now_iso(),
+             "by": user.get("name", ""), "created_at": now_iso()}
+    await db.jobs.update_one({"_id": job["_id"]}, {"$push": {"photos": photo}})
+    await log_audit(user["company_id"], user, f"Added photo to job: {job['name']}")
+    return photo
 
 
 @api.get("/timecards/active")
