@@ -51,3 +51,10 @@
 
 ## 2026-06 Estimate PDF
 - backend/estimate_pdf.py (reportlab): branded letter PDF, line items, notes, signature block (signed: name/time/IP/deposit; unsigned: blank line). GET /api/estimates/{id}/pdf (owner/foreman), GET /api/public/estimates/{token}/pdf (customer). Buttons on Estimates card (estimate-pdf-btn) and public page (public-pdf-btn). Verified by rendering PDFs.
+
+## 2026-06 Security audit fixes
+- SEC-001: /api/upload allowlist (jpg/png/webp/gif/heic/pdf, 10MB), /api/files/{path} requires auth + company scope, nosniff + CSP sandbox, attachment for non-images.
+- SEC-002: post-update re-reads scoped by company_id; _oid() used in CRUD/estimates/team (404 on bad ids).
+- SEC-003: CSV export QUOTE_ALL + formula-prefix neutralisation (_csv_safe).
+- Hardening: cookie SameSite=lax (preview proxy may rewrite to None externally; local shows lax), login rate limit 10 fails/15min per email (in-memory), approval emails w/ PDF attachment.
+- pytest run: REACT_APP_BACKEND_URL=<url> TEST_OWNER_PASSWORD=... pytest tests -o addopts="" → 92/93 pass (1 flaky under load).

@@ -18,6 +18,7 @@ import stripe
 import httpx
 import re
 import hmac
+import base64
 import ipaddress
 from html import escape
 from html.parser import HTMLParser
@@ -171,7 +172,20 @@ async def require_superadmin(user: dict = Depends(get_current_user)):
 
 
 def set_cookies(response: Response, token: str):
-    response.set_cookie("access_token", token, httponly=True, secure=True, samesite="none", max_age=604800, path="/")
+    response.set_cookie("access_token", token, httponly=True, secure=True, samesite="lax", max_age=604800, path="/")
+
+
+LOGIN_MAX_ATTEMPTS = 10
+LOGIN_WINDOW = timedelta(minutes=15)
+_login_attempts: dict = {}
+
+
+def _check_login_rate(key: str):
+    now = datetime.now(timezone.utc)
+    attempts = [t for t in _login_attempts.get(key, []) if now - t < LOGIN_WINDOW]
+    _login_attempts[key] = attempts
+    if len(attempts) >= LOGIN_MAX_ATTEMPTS:
+        raise HTTPException(429, "Too many login attempts. Try again in 15 minutes.")
 
 
 # ---------- Auth models ----------
@@ -208,8 +222,11 @@ async def register(req: RegisterReq, response: Response):
 @api.post("/auth/login")
 async def login(req: LoginReq, response: Response):
     email = req.email.lower()
+    rate_key = email
+    _check_login_rate(rate_key)
     user = await db.users.find_one({"email": email})
     if not user or not verify_password(req.password, user["password_hash"]):
+        _login_attempts.setdefault(rate_key, []).append(datetime.now(timezone.utc))
         raise HTTPException(status_code=401, detail="Invalid email or password")
     token = create_access_token(str(user["_id"]), email)
     set_cookies(response, token)
@@ -379,7 +396,7 @@ def crud_router(name: str, collection: str, Model, create_roles=("owner", "forem
 
     @r.get(f"/{name}/{{item_id}}")
     async def get_item(item_id: str, user: dict = Depends(get_current_user)):
-        item = await db[collection].find_one({"_id": ObjectId(item_id), "company_id": user["company_id"]})
+        item = await db[collection].find_one({"_id": _oid(item_id), "company_id": user["company_id"]})
         if not item:
             raise HTTPException(404, "Not found")
         return clean(item)
@@ -387,15 +404,17 @@ def crud_router(name: str, collection: str, Model, create_roles=("owner", "forem
     @r.put(f"/{name}/{{item_id}}")
     async def update_item(item_id: str, payload: Model, user: dict = Depends(require_role(*create_roles))):
         doc = payload.model_dump(exclude_unset=True)
-        await db[collection].update_one({"_id": ObjectId(item_id), "company_id": user["company_id"]}, {"$set": doc})
-        item = await db[collection].find_one({"_id": ObjectId(item_id)})
+        await db[collection].update_one({"_id": _oid(item_id), "company_id": user["company_id"]}, {"$set": doc})
+        item = await db[collection].find_one({"_id": _oid(item_id), "company_id": user["company_id"]})
+        if not item:
+            raise HTTPException(404, "Not found")
         await log_audit(user["company_id"], user, f"Updated {label}: {doc.get('name', '')}".strip())
         return clean(item)
 
     @r.delete(f"/{name}/{{item_id}}")
     async def delete_item(item_id: str, user: dict = Depends(require_role("owner"))):
-        gone = await db[collection].find_one({"_id": ObjectId(item_id), "company_id": user["company_id"]})
-        await db[collection].delete_one({"_id": ObjectId(item_id), "company_id": user["company_id"]})
+        gone = await db[collection].find_one({"_id": _oid(item_id), "company_id": user["company_id"]})
+        await db[collection].delete_one({"_id": _oid(item_id), "company_id": user["company_id"]})
         await log_audit(user["company_id"], user, f"Deleted {label}: {gone.get('name', '') if gone else ''}".strip())
         return {"status": "deleted"}
 
@@ -532,20 +551,22 @@ async def update_estimate(item_id: str, payload: Estimate, user: dict = Depends(
     doc = payload.model_dump()
     doc.pop("status", None)
     doc["total"] = sum(li.get("qty", 1) * li.get("unit_price", 0) for li in payload.line_items)
-    await db.estimates.update_one({"_id": ObjectId(item_id), "company_id": user["company_id"]}, {"$set": doc})
-    item = await db.estimates.find_one({"_id": ObjectId(item_id)})
+    await db.estimates.update_one({"_id": _oid(item_id), "company_id": user["company_id"]}, {"$set": doc})
+    item = await db.estimates.find_one({"_id": _oid(item_id), "company_id": user["company_id"]})
+    if not item:
+        raise HTTPException(404, "Estimate not found")
     return clean(item)
 
 
 @api.delete("/estimates/{item_id}")
 async def delete_estimate(item_id: str, user: dict = Depends(require_role("owner"))):
-    await db.estimates.delete_one({"_id": ObjectId(item_id), "company_id": user["company_id"]})
+    await db.estimates.delete_one({"_id": _oid(item_id), "company_id": user["company_id"]})
     return {"status": "deleted"}
 
 
 @api.post("/estimates/{item_id}/send")
 async def send_estimate(item_id: str, user: dict = Depends(require_role("owner", "foreman"))):
-    est = await db.estimates.find_one({"_id": ObjectId(item_id), "company_id": user["company_id"]})
+    est = await db.estimates.find_one({"_id": _oid(item_id), "company_id": user["company_id"]})
     if not est:
         raise HTTPException(404, "Estimate not found")
     if not est.get("customer_email"):
@@ -640,7 +661,7 @@ class ApproveReq(BaseModel):
 
 
 @api.post("/public/estimates/{token}/approve")
-async def approve_estimate(token: str, req: ApproveReq, request: Request):
+async def approve_estimate(token: str, req: ApproveReq, request: Request, background: BackgroundTasks):
     est, comp = await _est_by_token(token)
     if est.get("status") == "approved":
         return _public_estimate(est, comp)
@@ -651,7 +672,50 @@ async def approve_estimate(token: str, req: ApproveReq, request: Request):
                                        "message": f"{est.get('customer_name','Customer')} approved estimate (${est.get('total',0):,.2f}) — signed {upd['signature_name']}",
                                        "estimate_id": str(est["_id"]), "read": False, "created_at": now_iso()})
     await log_audit(est["company_id"], None, f"Customer {upd['signature_name']} e-signed estimate for {est.get('customer_name','')}")
+    background.add_task(send_approval_emails, {**est, **upd}, comp, token)
     return _public_estimate({**est, **upd}, comp)
+
+
+def _approval_html(heading: str, intro: str, est: dict, comp: dict, link: str) -> str:
+    return f"""
+    <table width='100%' style='font-family:Arial,sans-serif;max-width:600px;margin:auto'>
+      <tr><td style='padding:24px'>
+      <h2 style='color:#FF3B30;margin:0 0 12px'>{escape(heading)}</h2>
+      <p>{intro}</p>
+      <table width='100%' style='border-collapse:collapse;margin:16px 0'>
+        <tr><td style='padding:6px 0;color:#555'>Company</td><td style='padding:6px 0;text-align:right'><b>{escape(comp.get('name',''))}</b></td></tr>
+        <tr><td style='padding:6px 0;color:#555'>Customer</td><td style='padding:6px 0;text-align:right'>{escape(est.get('customer_name',''))}</td></tr>
+        <tr><td style='padding:6px 0;color:#555'>Total</td><td style='padding:6px 0;text-align:right'><b>${est.get('total',0):,.2f}</b></td></tr>
+        <tr><td style='padding:6px 0;color:#555'>Signed by</td><td style='padding:6px 0;text-align:right'>{escape(est.get('signature_name',''))}</td></tr>
+      </table>
+      <p>The signed estimate is attached as a PDF for your records.</p>
+      <p style='margin:24px 0'><a href='{link}' style='background:#FF3B30;color:#fff;padding:12px 22px;border-radius:6px;text-decoration:none;font-weight:bold'>View estimate</a></p>
+      <p style='color:#888;font-size:12px'>Sent by {escape(EMAIL_FROM_NAME)}. We never ask for your password or card details by email.</p>
+      </td></tr>
+    </table>"""
+
+
+async def send_approval_emails(est: dict, comp: dict, token: str):
+    pdf_b64 = base64.b64encode(build_estimate_pdf(est, comp)).decode()
+    attachment = [{"filename": f"estimate-{str(est['_id'])[-6:].upper()}-signed.pdf", "content": pdf_b64}]
+    link = f"{FRONTEND_URL}/estimate/{token}"
+    deposit = round(est.get("total", 0) * (est.get("deposit_percent", 25) or 0) / 100, 2)
+    subject = f"Signed estimate from {comp.get('name','Hub Trade')} — ${est.get('total',0):,.2f}"
+    sends = []
+    if est.get("customer_email"):
+        intro = (f"Thanks, {escape(est.get('signature_name',''))} — your approval has been recorded."
+                 + (f" You can pay the ${deposit:,.2f} deposit any time from the estimate page." if deposit > 0 and not est.get("deposit_paid") else ""))
+        sends.append((est["customer_email"], _approval_html("Your estimate is approved", intro, est, comp, link)))
+    owners = await db.users.find({"company_id": est["company_id"], "role": "owner"}, {"email": 1}).to_list(10)
+    owner_intro = f"{escape(est.get('customer_name',''))} just e-signed your estimate. Deposit due: ${deposit:,.2f}."
+    for o in owners:
+        sends.append((o["email"], _approval_html("Estimate approved & signed", owner_intro, est, comp, f"{FRONTEND_URL}/app/estimates")))
+    for to, html in sends:
+        try:
+            await _post_email({"to": [to], "subject": subject, "html": html, "from_name": EMAIL_FROM_NAME, "attachments": attachment})
+        except HTTPException:
+            continue
+    await db.estimates.update_one({"_id": est["_id"]}, {"$set": {"approval_emails_sent_at": now_iso()}})
 
 
 class DepositReq(BaseModel):
@@ -878,24 +942,37 @@ async def cron_trial_reminders(background: BackgroundTasks, authorization: str =
 
 
 # ---------- File upload ----------
+ALLOWED_UPLOAD_TYPES = {"image/jpeg", "image/png", "image/webp", "image/gif", "image/heic", "application/pdf"}
+MAX_UPLOAD_BYTES = 10 * 1024 * 1024
+
+
 @api.post("/upload")
 async def upload(file: UploadFile = File(...), user: dict = Depends(get_current_user)):
-    ext = file.filename.split(".")[-1] if "." in file.filename else "bin"
-    path = f"{APP_NAME}/{user['company_id']}/{uuid.uuid4()}.{ext}"
+    ct = (file.content_type or "").lower()
+    if ct not in ALLOWED_UPLOAD_TYPES:
+        raise HTTPException(400, "Only JPG, PNG, WEBP, GIF, HEIC images and PDF files are allowed")
     data = await file.read()
-    result = put_object(path, data, file.content_type or "application/octet-stream")
-    await db.files.insert_one({"storage_path": result["path"], "content_type": file.content_type,
+    if len(data) > MAX_UPLOAD_BYTES:
+        raise HTTPException(413, "File too large (max 10 MB)")
+    ext = {"image/jpeg": "jpg", "image/png": "png", "image/webp": "webp", "image/gif": "gif", "image/heic": "heic", "application/pdf": "pdf"}[ct]
+    path = f"{APP_NAME}/{user['company_id']}/{uuid.uuid4()}.{ext}"
+    result = put_object(path, data, ct)
+    await db.files.insert_one({"storage_path": result["path"], "content_type": ct,
                                "company_id": user["company_id"], "is_deleted": False, "created_at": now_iso()})
     return {"path": result["path"]}
 
 
 @api.get("/files/{path:path}")
-async def download_file(path: str, auth: str = Query(None), authorization: str = Header(None)):
-    record = await db.files.find_one({"storage_path": path, "is_deleted": False})
+async def download_file(path: str, user: dict = Depends(get_current_user)):
+    record = await db.files.find_one({"storage_path": path, "company_id": user["company_id"], "is_deleted": False})
     if not record:
         raise HTTPException(404, "File not found")
-    data, ct = get_object(path)
-    return StarletteResponse(content=data, media_type=record.get("content_type", ct))
+    data, _ = get_object(path)
+    ct = record.get("content_type") if record.get("content_type") in ALLOWED_UPLOAD_TYPES else "application/octet-stream"
+    disposition = "inline" if ct.startswith("image/") else "attachment"
+    return StarletteResponse(content=data, media_type=ct, headers={
+        "X-Content-Type-Options": "nosniff", "Content-Disposition": f'{disposition}; filename="{path.rsplit("/", 1)[-1]}"',
+        "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox"})
 
 
 # ---------- Time cards ----------
@@ -1105,7 +1182,7 @@ class RoleUpdateReq(BaseModel):
 async def update_role(user_id: str, req: RoleUpdateReq, user: dict = Depends(require_role("owner"))):
     if req.role not in ("owner", "foreman", "employee"):
         raise HTTPException(400, "Invalid role")
-    target = await db.users.find_one({"_id": ObjectId(user_id), "company_id": user["company_id"]})
+    target = await db.users.find_one({"_id": _oid(user_id), "company_id": user["company_id"]})
     if not target:
         raise HTTPException(404, "Member not found")
     if str(target["_id"]) == str(user["_id"]) and req.role != "owner":
@@ -1233,15 +1310,20 @@ async def list_audit_logs(start: Optional[str] = None, end: Optional[str] = None
     return [clean(i) for i in items]
 
 
+def _csv_safe(v) -> str:
+    s = str(v if v is not None else "")
+    return "'" + s if s[:1] in ("=", "+", "-", "@", "\t", "\r") else s
+
+
 @api.get("/audit-logs/export")
 async def export_audit_logs(start: Optional[str] = None, end: Optional[str] = None, user: dict = Depends(require_role("owner"))):
     q = _audit_query(user["company_id"], start, end)
     items = await db.audit_logs.find(q).sort("created_at", -1).to_list(100000)
     buf = io.StringIO()
-    writer = csv.writer(buf)
+    writer = csv.writer(buf, quoting=csv.QUOTE_ALL)
     writer.writerow(["Timestamp", "User", "Action"])
     for i in items:
-        writer.writerow([i.get("created_at", ""), i.get("user_name", ""), i.get("action", "")])
+        writer.writerow([_csv_safe(i.get("created_at", "")), _csv_safe(i.get("user_name", "")), _csv_safe(i.get("action", ""))])
     filename = f"audit_logs_{start or 'all'}_to_{end or 'all'}.csv"
     return StarletteResponse(
         content=buf.getvalue(),
