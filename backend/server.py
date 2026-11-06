@@ -563,6 +563,34 @@ def _trial_reminder_html(owner_name: str, company_name: str, ends: datetime) -> 
     </table>"""
 
 
+def _trial_ended_html(owner_name: str, company_name: str) -> str:
+    link = f"{FRONTEND_URL}/app/membership"
+    return f"""
+    <table width='100%' style='font-family:Arial,sans-serif;max-width:600px;margin:auto'>
+      <tr><td style='padding:24px'>
+      <h2 style='color:#FF3B30;margin:0 0 12px'>Your Hub Trade trial has ended</h2>
+      <p>Hi {escape(owner_name)},</p>
+      <p>The free trial for <b>{escape(company_name)}</b> ended today. Your jobs, crew, equipment, estimates and
+      time cards are all saved — pick a plan to reactivate your workspace in one tap.</p>
+      <p style='margin:28px 0'><a href='{link}' style='background:#FF3B30;color:#fff;padding:14px 24px;border-radius:6px;text-decoration:none;font-weight:bold'>Reactivate my workspace</a></p>
+      <p style='color:#555;font-size:13px'>Plans start at $60/mo, billed every 6 months.</p>
+      <p style='color:#888;font-size:12px'>Sent by {escape(EMAIL_FROM_NAME)}. We never ask for your password or card details by email.</p>
+      </td></tr>
+    </table>"""
+
+
+async def _email_owners(comp: dict, subject: str, html_for: callable) -> int:
+    owners = await db.users.find({"company_id": str(comp["_id"]), "role": "owner"}, {"email": 1, "name": 1}).to_list(10)
+    sent = 0
+    for o in owners:
+        try:
+            await _post_email({"to": [o["email"]], "subject": subject, "html": html_for(o.get("name") or "there"), "from_name": EMAIL_FROM_NAME})
+            sent += 1
+        except HTTPException:
+            continue
+    return sent
+
+
 async def run_trial_reminders() -> int:
     now = datetime.now(timezone.utc)
     horizon = (now + timedelta(days=TRIAL_REMINDER_DAYS)).isoformat()
@@ -570,18 +598,30 @@ async def run_trial_reminders() -> int:
                                      "trial_ends_at": {"$gt": now.isoformat(), "$lte": horizon}}).to_list(500)
     sent = 0
     for comp in comps:
-        owners = await db.users.find({"company_id": str(comp["_id"]), "role": "owner"}, {"email": 1, "name": 1}).to_list(10)
         ends = datetime.fromisoformat(comp["trial_ends_at"])
-        for o in owners:
-            try:
-                await _post_email({"to": [o["email"]], "subject": f"Your Hub Trade free trial ends in {TRIAL_REMINDER_DAYS} days",
-                                   "html": _trial_reminder_html(o.get("name") or "there", comp.get("name", ""), ends), "from_name": EMAIL_FROM_NAME})
-                sent += 1
-            except HTTPException:
-                continue
+        sent += await _email_owners(comp, f"Your Hub Trade free trial ends in {TRIAL_REMINDER_DAYS} days",
+                                    lambda n, c=comp: _trial_reminder_html(n, c.get("name", ""), ends))
         await db.companies.update_one({"_id": comp["_id"]}, {"$set": {"trial_reminder_sent": True, "trial_reminder_sent_at": now_iso()}})
     logger.info(f"trial reminders sent: {sent}")
     return sent
+
+
+async def run_trial_ended() -> int:
+    now = datetime.now(timezone.utc)
+    comps = await db.companies.find({"membership_status": {"$in": ["trial", "expired"]}, "trial_ended_email_sent": {"$ne": True},
+                                     "trial_ends_at": {"$lte": now.isoformat()}}).to_list(500)
+    sent = 0
+    for comp in comps:
+        await db.companies.update_one({"_id": comp["_id"]}, {"$set": {"membership_status": "expired", "plan": None,
+                                                                      "trial_ended_email_sent": True, "trial_ended_email_sent_at": now_iso()}})
+        sent += await _email_owners(comp, "Your Hub Trade free trial has ended", lambda n, c=comp: _trial_ended_html(n, c.get("name", "")))
+    logger.info(f"trial ended emails sent: {sent}")
+    return sent
+
+
+async def run_trial_jobs():
+    await run_trial_reminders()
+    await run_trial_ended()
 
 
 @api.post("/cron/trial-reminders")
@@ -595,7 +635,7 @@ async def cron_trial_reminders(background: BackgroundTasks, authorization: str =
     if await db.cron_runs.find_one({"run_id": run_id}):
         return {"status": "duplicate"}
     await db.cron_runs.insert_one({"run_id": run_id, "job": "trial-reminders", "created_at": now_iso()})
-    background.add_task(run_trial_reminders)
+    background.add_task(run_trial_jobs)
     return {"status": "accepted"}
 
 

@@ -36,3 +36,6 @@
 ## 2026-06 Trial reminder email
 - .emergent/crons.yml: trial-reminders daily 14:00 UTC → POST /api/cron/trial-reminders (Bearer WEBHOOK_CRON_SECRET, idempotent via X-Webhook-Id in db.cron_runs, BackgroundTasks). run_trial_reminders() emails owners of trial companies ending within 2 days (once, trial_reminder_sent flag) with FRONTEND_URL/app/membership upgrade link. Added _assert_safe_email gate + _post_email helper (also used by estimate send). Verified: 401 no auth, accepted, duplicate, email 202 to delivered@resend.dev.
 - Production: add WEBHOOK_CRON_SECRET, TRIAL_CODE, TRIAL_DAYS, FRONTEND_URL=https://www.trademainhub.com to Deployments → Secrets.
+
+## 2026-06 Trial ended email
+- run_trial_ended() in same daily cron: companies with trial_ends_at <= now → set expired/plan None, email owners "trial has ended" with Reactivate link, once (trial_ended_email_sent). Verified: sent 1, re-run sent 0.
