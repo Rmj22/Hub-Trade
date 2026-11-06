@@ -329,7 +329,8 @@ class Estimate(BaseModel):
     line_items: List[dict] = []  # {desc, qty, unit_price}
     notes: str = ""
     photos: List[str] = []
-    status: str = "draft"  # draft, sent
+    status: str = "draft"  # draft, sent, approved
+    deposit_percent: float = 25
 
 
 class MessageReq(BaseModel):
@@ -371,7 +372,7 @@ def crud_router(name: str, collection: str, Model, create_roles=("owner", "forem
 
     @r.put(f"/{name}/{{item_id}}")
     async def update_item(item_id: str, payload: Model, user: dict = Depends(require_role(*create_roles))):
-        doc = payload.model_dump()
+        doc = payload.model_dump(exclude_unset=True)
         await db[collection].update_one({"_id": ObjectId(item_id), "company_id": user["company_id"]}, {"$set": doc})
         item = await db[collection].find_one({"_id": ObjectId(item_id)})
         await log_audit(user["company_id"], user, f"Updated {label}: {doc.get('name', '')}".strip())
@@ -406,10 +407,23 @@ async def _valid_ids(coll: str, cid: str, ids: List[str]) -> List[str]:
     return [str(d["_id"]) for d in docs]
 
 
+def _oid(value: str) -> ObjectId:
+    if not ObjectId.is_valid(value):
+        raise HTTPException(404, "Not found")
+    return ObjectId(value)
+
+
+def _valid_date(value: str) -> str:
+    try:
+        return datetime.strptime(value, "%Y-%m-%d").strftime("%Y-%m-%d")
+    except ValueError:
+        raise HTTPException(400, "Date must be YYYY-MM-DD")
+
+
 @api.put("/jobs/{job_id}/crew")
 async def assign_crew(job_id: str, req: CrewAssign, user: dict = Depends(require_role("owner", "foreman"))):
     cid = user["company_id"]
-    job = await db.jobs.find_one({"_id": ObjectId(job_id), "company_id": cid})
+    job = await db.jobs.find_one({"_id": _oid(job_id), "company_id": cid})
     if not job:
         raise HTTPException(404, "Job not found")
     emps = await _valid_ids("employees", cid, req.assigned_employees)
@@ -428,6 +442,7 @@ async def assign_crew(job_id: str, req: CrewAssign, user: dict = Depends(require
 
 # ---------- Daily schedule ----------
 class ScheduleEntry(BaseModel):
+    id: Optional[str] = None
     date: str  # YYYY-MM-DD
     job_id: str
     employee_ids: List[str] = []
@@ -439,29 +454,41 @@ class ScheduleEntry(BaseModel):
 @api.get("/schedule")
 async def list_schedule(start: str = Query(...), end: str = Query(...), user: dict = Depends(get_current_user)):
     cid = user["company_id"]
-    rows = await db.schedule.find({"company_id": cid, "date": {"$gte": start, "$lte": end}}).sort("date", 1).to_list(2000)
+    rows = await db.schedule.find({"company_id": cid, "date": {"$gte": _valid_date(start), "$lte": _valid_date(end)}}).sort("date", 1).to_list(2000)
     return [clean(r) for r in rows]
 
 
 @api.put("/schedule")
 async def upsert_schedule(req: ScheduleEntry, user: dict = Depends(require_role("owner", "foreman"))):
     cid = user["company_id"]
-    job = await db.jobs.find_one({"_id": ObjectId(req.job_id), "company_id": cid}, {"name": 1})
+    date = _valid_date(req.date)
+    job = await db.jobs.find_one({"_id": _oid(req.job_id), "company_id": cid}, {"name": 1})
     if not job:
         raise HTTPException(404, "Job not found")
-    doc = {"company_id": cid, "date": req.date, "job_id": req.job_id, "notes": req.notes,
+    doc = {"company_id": cid, "date": date, "job_id": req.job_id, "notes": req.notes,
            "employee_ids": await _valid_ids("employees", cid, req.employee_ids),
            "vehicle_ids": await _valid_ids("vehicles", cid, req.vehicle_ids),
            "equipment_ids": await _valid_ids("equipment", cid, req.equipment_ids),
            "updated_at": now_iso(), "updated_by": user.get("name", "")}
-    await db.schedule.update_one({"company_id": cid, "date": req.date, "job_id": req.job_id}, {"$set": doc}, upsert=True)
-    await log_audit(cid, user, f"Scheduled {job['name']} for {req.date}")
-    return clean(await db.schedule.find_one({"company_id": cid, "date": req.date, "job_id": req.job_id}))
+    key = {"company_id": cid, "date": date, "job_id": req.job_id}
+    if req.id:
+        existing = await db.schedule.find_one({"_id": _oid(req.id), "company_id": cid})
+        if not existing:
+            raise HTTPException(404, "Entry not found")
+        dup = await db.schedule.find_one({**key, "_id": {"$ne": existing["_id"]}})
+        if dup:
+            raise HTTPException(400, "That job is already scheduled on this date")
+        await db.schedule.update_one({"_id": existing["_id"]}, {"$set": doc})
+        key = {"_id": existing["_id"]}
+    else:
+        await db.schedule.update_one(key, {"$set": doc}, upsert=True)
+    await log_audit(cid, user, f"Scheduled {job['name']} for {date}")
+    return clean(await db.schedule.find_one(key))
 
 
 @api.delete("/schedule/{entry_id}")
 async def delete_schedule(entry_id: str, user: dict = Depends(require_role("owner", "foreman"))):
-    res = await db.schedule.delete_one({"_id": ObjectId(entry_id), "company_id": user["company_id"]})
+    res = await db.schedule.delete_one({"_id": _oid(entry_id), "company_id": user["company_id"]})
     if not res.deleted_count:
         raise HTTPException(404, "Entry not found")
     return {"ok": True}
@@ -489,6 +516,7 @@ async def create_estimate(payload: Estimate, user: dict = Depends(require_role("
 @api.put("/estimates/{item_id}")
 async def update_estimate(item_id: str, payload: Estimate, user: dict = Depends(require_role("owner", "foreman"))):
     doc = payload.model_dump()
+    doc.pop("status", None)
     doc["total"] = sum(li.get("qty", 1) * li.get("unit_price", 0) for li in payload.line_items)
     await db.estimates.update_one({"_id": ObjectId(item_id), "company_id": user["company_id"]}, {"$set": doc})
     item = await db.estimates.find_one({"_id": ObjectId(item_id)})
@@ -509,8 +537,13 @@ async def send_estimate(item_id: str, user: dict = Depends(require_role("owner",
     if not est.get("customer_email"):
         raise HTTPException(400, "Customer email required")
     comp = await db.companies.find_one({"_id": ObjectId(user["company_id"])})
+    token = est.get("public_token") or secrets.token_urlsafe(24)
+    if not est.get("public_token"):
+        await db.estimates.update_one({"_id": est["_id"]}, {"$set": {"public_token": token}})
+    link = f"{FRONTEND_URL}/estimate/{token}"
+    deposit = round(est.get("total", 0) * (est.get("deposit_percent", 25) or 0) / 100, 2)
     rows = "".join(
-        f"<tr><td style='padding:8px;border-bottom:1px solid #eee'>{li.get('desc','')}</td>"
+        f"<tr><td style='padding:8px;border-bottom:1px solid #eee'>{escape(str(li.get('desc','')))}</td>"
         f"<td style='padding:8px;border-bottom:1px solid #eee;text-align:center'>{li.get('qty',1)}</td>"
         f"<td style='padding:8px;border-bottom:1px solid #eee;text-align:right'>${li.get('unit_price',0):,.2f}</td>"
         f"<td style='padding:8px;border-bottom:1px solid #eee;text-align:right'>${li.get('qty',1)*li.get('unit_price',0):,.2f}</td></tr>"
@@ -525,14 +558,109 @@ async def send_estimate(item_id: str, user: dict = Depends(require_role("owner",
         {rows}
       </table>
       <h3 style='text-align:right'>Total: ${est.get('total',0):,.2f}</h3>
-      <p style='color:#555'>{est.get('notes','')}</p>
+      <p style='color:#555'>{escape(str(est.get('notes','')))}</p>
+      <p style='margin:28px 0;text-align:center'><a href='{link}' style='background:#FF3B30;color:#fff;padding:14px 24px;border-radius:6px;text-decoration:none;font-weight:bold'>Review &amp; approve estimate</a></p>
+      <p style='color:#555;font-size:13px;text-align:center'>Approve online with your e-signature{f" and pay the ${deposit:,.2f} deposit" if deposit > 0 else ""} to get on the schedule.</p>
+      <p style='color:#888;font-size:12px'>Sent by {escape(EMAIL_FROM_NAME)} on behalf of {escape(comp.get('name',''))}. We never ask for your password or card details by email.</p>
       </td></tr>
     </table>"""
     payload = {"to": [est["customer_email"]], "subject": f"Your estimate from {comp.get('name','Hub Trade')}", "html": html, "from_name": EMAIL_FROM_NAME}
     await _post_email(payload)
     await db.estimates.update_one({"_id": ObjectId(item_id)}, {"$set": {"status": "sent", "sent_at": now_iso()}})
     await log_audit(user["company_id"], user, f"Sent estimate to {est.get('customer_email')}")
-    return {"status": "sent"}
+    return {"status": "sent", "link": link}
+
+
+# ---------- Public estimate approval + deposit ----------
+def _public_estimate(est: dict, comp: dict) -> dict:
+    total = est.get("total", 0)
+    pct = est.get("deposit_percent", 25) or 0
+    return {
+        "company_name": comp.get("name", ""), "customer_name": est.get("customer_name", ""),
+        "line_items": est.get("line_items", []), "notes": est.get("notes", ""), "total": total,
+        "status": est.get("status", "sent"), "deposit_percent": pct, "deposit_amount": round(total * pct / 100, 2),
+        "approved_at": est.get("approved_at"), "signature_name": est.get("signature_name"),
+        "deposit_paid": bool(est.get("deposit_paid")), "deposit_paid_at": est.get("deposit_paid_at"),
+        "created_at": est.get("created_at"),
+    }
+
+
+async def _est_by_token(token: str):
+    est = await db.estimates.find_one({"public_token": token})
+    if not est:
+        raise HTTPException(404, "Estimate not found")
+    comp = await db.companies.find_one({"_id": ObjectId(est["company_id"])}, {"name": 1})
+    return est, comp or {}
+
+
+@api.get("/public/estimates/{token}")
+async def public_estimate(token: str):
+    est, comp = await _est_by_token(token)
+    return _public_estimate(est, comp)
+
+
+class ApproveReq(BaseModel):
+    signature_name: str = Field(min_length=2, max_length=120)
+
+
+@api.post("/public/estimates/{token}/approve")
+async def approve_estimate(token: str, req: ApproveReq, request: Request):
+    est, comp = await _est_by_token(token)
+    if est.get("status") == "approved":
+        return _public_estimate(est, comp)
+    upd = {"status": "approved", "approved_at": now_iso(), "signature_name": req.signature_name.strip(),
+           "signer_ip": request.client.host if request.client else None}
+    await db.estimates.update_one({"_id": est["_id"]}, {"$set": upd})
+    await db.notifications.insert_one({"company_id": est["company_id"], "type": "estimate",
+                                       "message": f"{est.get('customer_name','Customer')} approved estimate (${est.get('total',0):,.2f}) — signed {upd['signature_name']}",
+                                       "estimate_id": str(est["_id"]), "read": False, "created_at": now_iso()})
+    await log_audit(est["company_id"], None, f"Customer {upd['signature_name']} e-signed estimate for {est.get('customer_name','')}")
+    return _public_estimate({**est, **upd}, comp)
+
+
+class DepositReq(BaseModel):
+    origin_url: str
+
+
+@api.post("/public/estimates/{token}/deposit")
+async def estimate_deposit_checkout(token: str, req: DepositReq):
+    est, comp = await _est_by_token(token)
+    if est.get("status") != "approved":
+        raise HTTPException(400, "Approve the estimate before paying the deposit")
+    if est.get("deposit_paid"):
+        raise HTTPException(400, "Deposit already paid")
+    amount = round(est.get("total", 0) * (est.get("deposit_percent", 25) or 0) / 100, 2)
+    if amount <= 0:
+        raise HTTPException(400, "No deposit required for this estimate")
+    session = stripe.checkout.Session.create(
+        mode="payment",
+        line_items=[{"quantity": 1, "price_data": {"currency": "usd", "unit_amount": int(round(amount * 100)),
+                     "product_data": {"name": f"Deposit — {comp.get('name','')} estimate for {est.get('customer_name','')}"}}}],
+        success_url=f"{req.origin_url}/estimate/{token}?session_id={{CHECKOUT_SESSION_ID}}",
+        cancel_url=f"{req.origin_url}/estimate/{token}",
+        customer_email=est.get("customer_email") or None,
+        metadata={"kind": "deposit", "estimate_id": str(est["_id"]), "company_id": est["company_id"]},
+    )
+    await db.payment_transactions.insert_one({
+        "session_id": session.id, "kind": "deposit", "estimate_id": str(est["_id"]), "company_id": est["company_id"],
+        "amount": amount, "currency": "usd", "status": "initiated", "payment_status": "pending",
+        "created_at": now_iso(), "updated_at": now_iso(),
+    })
+    return {"checkout_url": session.url, "session_id": session.id}
+
+
+async def _fulfil_payment(rec: dict):
+    if rec.get("kind") == "deposit":
+        est = await db.estimates.find_one({"_id": ObjectId(rec["estimate_id"])})
+        if est and not est.get("deposit_paid"):
+            await db.estimates.update_one({"_id": est["_id"]}, {"$set": {"deposit_paid": True, "deposit_paid_at": now_iso(), "deposit_amount": rec["amount"]}})
+            await db.notifications.insert_one({"company_id": rec["company_id"], "type": "payment",
+                                               "message": f"Deposit of ${rec['amount']:,.2f} received from {est.get('customer_name','customer')}",
+                                               "estimate_id": str(est["_id"]), "read": False, "created_at": now_iso()})
+            await log_audit(rec["company_id"], None, f"Deposit ${rec['amount']:,.2f} paid on estimate for {est.get('customer_name','')}")
+        return
+    await db.companies.update_one({"_id": ObjectId(rec["company_id"])},
+                                  {"$set": {"plan": rec["plan"], "membership_status": "active", "membership_since": now_iso()}})
 
 
 _SHORTENERS = ("bit.ly", "tinyurl.com", "t.co", "is.gd", "cutt.ly", "goo.gl", "rebrand.ly")
@@ -1125,12 +1253,11 @@ async def payment_status(session_id: str):
                 await db.payment_transactions.update_one(
                     {"session_id": session_id, "payment_status": {"$ne": "paid"}},
                     {"$set": {"status": "completed", "payment_status": "paid", "updated_at": now_iso()}})
-                await db.companies.update_one({"_id": ObjectId(record["company_id"])},
-                    {"$set": {"plan": record["plan"], "membership_status": "active", "membership_since": now_iso()}})
+                await _fulfil_payment(record)
                 record = await db.payment_transactions.find_one({"session_id": session_id})
         except stripe.error.StripeError:
             pass
-    return {"session_id": record["session_id"], "status": record["status"], "payment_status": record["payment_status"], "plan": record.get("plan")}
+    return {"session_id": record["session_id"], "status": record["status"], "payment_status": record["payment_status"], "plan": record.get("plan"), "kind": record.get("kind")}
 
 
 @api.post("/stripe/webhook")
@@ -1148,8 +1275,7 @@ async def stripe_webhook(request: Request):
             {"session_id": obj["id"], "payment_status": {"$ne": "paid"}},
             {"$set": {"status": "completed", "payment_status": obj.get("payment_status", "paid"), "updated_at": now_iso()}})
         if rec:
-            await db.companies.update_one({"_id": ObjectId(rec["company_id"])},
-                {"$set": {"plan": rec["plan"], "membership_status": "active", "membership_since": now_iso()}})
+            await _fulfil_payment(rec)
     return {"status": "ok"}
 
 

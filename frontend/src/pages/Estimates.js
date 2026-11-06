@@ -7,7 +7,7 @@ import { EstimateCard, EstimateModal } from "../components/estimates/EstimatePar
 let lineSeq = 0;
 const newLine = () => ({ _key: `li-${++lineSeq}`, desc: "", qty: 1, unit_price: 0 });
 const withKeys = (li) => (li?.length ? li.map((l) => ({ ...l, _key: l._key || `li-${++lineSeq}` })) : [newLine()]);
-const empty = { customer_name: "", customer_email: "", line_items: [], notes: "", photos: [], status: "draft" };
+const empty = { customer_name: "", customer_email: "", line_items: [], notes: "", photos: [], status: "draft", deposit_percent: 25 };
 
 export default function EstimatesPage() {
   const [items, setItems] = useState([]);
@@ -24,7 +24,7 @@ export default function EstimatesPage() {
 
   const save = async () => {
     try {
-      const payload = { ...modal, line_items: modal.line_items.map((l) => ({ desc: l.desc, qty: Number(l.qty), unit_price: Number(l.unit_price) })) };
+      const payload = { ...modal, deposit_percent: Number(modal.deposit_percent) || 0, line_items: modal.line_items.map((l) => ({ desc: l.desc, qty: Number(l.qty), unit_price: Number(l.unit_price) })) };
       if (editId) await api.put(`/estimates/${editId}`, payload);
       else await api.post("/estimates", payload);
       toast.success("Estimate saved"); setModal(null); load();

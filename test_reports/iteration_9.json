@@ -1,0 +1,47 @@
+{
+  "summary": "Tested Crew Assignment (Jobs page) and Schedule page, backend and UI. Core flows work: the Crew column and jobs-crew-btn appear on every row, crew-modal chips toggle and save and the counts update, the Schedule nav link and week strip (7 days) work, prev/next/Today work, schedule-add -> use job's crew -> notes -> save puts the entry in day detail and the strip counts, edit notes works, remove works, other days show the empty state. Backend: crew filtering of IDs from other companies and invalid IDs works, schedule upsert is idempotent (same date+job = one entry), date-range listing works, DELETE works, employee gets 403 and an assignment notification is created. Found 1 critical regression (editing a job wipes its crew), 2 functional bugs (timezone date keys; editing an entry's date copies it instead of moving it) and robustness issues (500 on malformed ObjectIds, invalid dates accepted).",
+  "backend_issues": {
+    "critical": [
+      {"endpoint": "PUT /api/jobs/{id} (generic crud_router update_item)", "issue": "Editing a job through the Jobs edit modal wipes assigned_employees/vehicles/equipment. CrudManager.save only sends the JOB_FIELDS keys, the Job Pydantic model defaults assigned_* to [], and update_item $sets the full model_dump(). Reproduced via API (test_job_edit_preserves_crew.py) and in the UI (Downtown Reno 1·1veh·1eq -> 0·0·0 after Edit+Save).", "priority": "HIGH"}
+    ],
+    "minor": [
+      {"endpoint": "PUT /api/jobs/{id}/crew, PUT /api/schedule, DELETE /api/schedule/{id}", "issue": "A malformed ObjectId (e.g. 'bad') returns 500 (bson InvalidId is not caught). Should return 400/404."},
+      {"endpoint": "PUT /api/schedule", "issue": "date is not validated: 'not-a-date' is accepted and stored with 200. Use a date type or a YYYY-MM-DD regex."},
+      {"endpoint": "DELETE /api/jobs/{id}", "issue": "Schedule entries for a deleted job are not removed, so orphan entries show as 'Job' with no name on the Schedule page."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "Schedule.js / ScheduleParts.js iso()", "issue": "iso() uses d.toISOString() (UTC). In the US after ~7-8pm local time, the 'today' highlight in WeekStrip moves to tomorrow (verified: NY 8:30pm Nov 6 -> 2026-11-07). In UTC+13 zones (NZ), the selected day at local noon maps to the previous date, so entries are created and filtered on the wrong day (verified: Auckland noon Nov 6 -> 2026-11-05). Build YYYY-MM-DD from getFullYear/getMonth/getDate instead.", "selector": "[data-testid^=schedule-day-]", "priority": "HIGH"},
+      {"component": "ScheduleModal (edit)", "issue": "When editing an entry, the date input can still be changed, but the upsert key is date+job. Saving creates a second entry on the new date and leaves the original in place (verified: Wed and Thu both had the entry). Either disable the date when editing, or delete the old entry / update by id.", "selector": "[data-testid=schedule-date]", "priority": "MEDIUM"},
+      {"component": "CrewModal / ScheduleModal PickList", "issue": "No loading state: 'None added yet.' shows while /employees, /vehicles and /equipment are still loading, which misleadingly says there are no resources (seen on the first test run).", "selector": "[data-testid=crew-pick-employees]", "priority": "LOW"},
+      {"component": "ScheduleModal", "issue": "The close (X) button has no data-testid. The CrewModal Cancel button has no data-testid.", "selector": "[data-testid=schedule-modal] button", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Schedule modal Job select", "issues": ["Uses a native <select> and a native date input, unlike the shadcn Select/Calendar components. Minor visual inconsistency on a dark theme."]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/test_crew_schedule.py", "/app/backend/tests/test_job_edit_preserves_crew.py", "/app/test_reports/pytest/pytest_crew_schedule.xml"],
+  "action_items": [
+    "HIGH: Stop the job edit from wiping crew. Either have update_item use payload.model_dump(exclude_unset=True), or have CrudManager send the assigned_* fields, or exclude the assigned_* fields in the generic update.",
+    "HIGH: Replace the toISOString-based iso() in Schedule.js and ScheduleParts.js with a local-date formatter.",
+    "MEDIUM: Fix schedule edit when the date changes (disable the date when editing, or move the entry by id).",
+    "Catch InvalidId -> 400/404 in assign_crew, upsert_schedule and delete_schedule (and generic CRUD).",
+    "Validate the schedule date format. Clean up schedule entries when a job is deleted.",
+    "Show a loading state in the PickList while resources load."
+  ],
+  "critical_code_review_comments": [
+    "crud_router.update_item overwrites any field not in the client payload with model defaults. This is a general risk for every resource whose model has fields the form doesn't send.",
+    "ObjectId(...) is called on raw path/body strings without validation, giving 500s.",
+    "server.py is 1220 lines and should be split into routers (crew/schedule could be their own module).",
+    "useResources() makes 3 requests every time a modal opens, with no caching."
+  ],
+  "updated_files": ["/app/backend/tests/test_crew_schedule.py", "/app/backend/tests/test_job_edit_preserves_crew.py"],
+  "success_rate": {"backend": "77% (14/18; the 4 failures are 1 critical regression and 3 robustness edge cases)", "frontend": "90% (all requested flows pass; edit-wipes-crew regression, timezone bug and edit-date duplicate found)"},
+  "seed_data_creation": "None kept. TEST_ jobs/employees/vehicles/equipment/schedule entries/team users were deleted by id. The temporary crew on 'Downtown Reno' was reset to its original empty crew. Test runs registered TEST_xco_* companies, which were not deleted (same as previous iterations).",
+  "retest_needed": true,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Run: REACT_APP_BACKEND_URL=<url> TEST_OWNER_PASSWORD='BuildIt2026!' pytest backend/tests/test_crew_schedule.py backend/tests/test_job_edit_preserves_crew.py -n 0. Retest job edit preserving crew, timezone-safe dates (e.g. emulate America/New_York in the evening) and edit-entry date change. The owner company has Mike Rivera, F-250 #1 and Skid Steer, and the jobs TEST_Reg_Job (crew 1/1/1, from another run), TEST Fmn Job x2 and Downtown Reno.",
+  "rca of the issue": "Crew wipe: Jobs.js -> CrudManager.save builds the payload from fields.map(f.key), so the assigned_* keys are missing. Job(BaseModel) fills them with [], and update_item does $set: payload.model_dump(), which overwrites them. Repro: assign crew -> Edit job -> Save -> Crew column shows 0. Fix: model_dump(exclude_unset=True) in update_item."
+}

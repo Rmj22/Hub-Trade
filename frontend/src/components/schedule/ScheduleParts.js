@@ -4,7 +4,7 @@ import { api, errMsg } from "../../lib/api";
 import { toast } from "sonner";
 import { PickList } from "../jobs/CrewModal";
 
-const iso = (d) => d.toISOString().slice(0, 10);
+const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 const DOW = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const names = (ids = [], lookup) => ids.map((i) => lookup[i]?.name).filter(Boolean);
 
@@ -96,7 +96,7 @@ const lbl = "block text-xs uppercase tracking-wider text-muted-foreground mb-1.5
 
 export function ScheduleModal({ entry, jobs, res, onClose, onSaved }) {
   const [form, setForm] = useState({
-    date: entry.date, job_id: entry.job_id || "", notes: entry.notes || "",
+    id: entry.id, date: entry.date, job_id: entry.job_id || "", notes: entry.notes || "",
     employee_ids: entry.employee_ids || [], vehicle_ids: entry.vehicle_ids || [], equipment_ids: entry.equipment_ids || [],
   });
   const [saving, setSaving] = useState(false);

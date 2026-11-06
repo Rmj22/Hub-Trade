@@ -8,6 +8,7 @@ import Dashboard from "./pages/Dashboard";
 import { VehiclesPage, EquipmentPage } from "./pages/Resources";
 import JobsPage from "./pages/Jobs";
 import SchedulePage from "./pages/Schedule";
+import PublicEstimatePage from "./pages/PublicEstimate";
 import TeamPage from "./pages/Team";
 import EstimatesPage from "./pages/Estimates";
 import TimeCardsPage from "./pages/TimeCards";
@@ -36,6 +37,7 @@ function App() {
           <Route path="/" element={<Landing />} />
           <Route path="/login" element={<LoginPage />} />
           <Route path="/register" element={<RegisterPage />} />
+          <Route path="/estimate/:token" element={<PublicEstimatePage />} />
           <Route path="/payment/success" element={<PaymentSuccess />} />
           <Route path="/app" element={<Protected><Dashboard /></Protected>} />
           <Route path="/app/jobs" element={<Protected><JobsPage /></Protected>} />

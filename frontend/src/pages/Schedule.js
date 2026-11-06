@@ -6,7 +6,7 @@ import { ChevronLeft, ChevronRight, CalendarDays } from "lucide-react";
 import { useResources } from "../components/jobs/CrewModal";
 import { WeekStrip, DayDetail, ScheduleModal } from "../components/schedule/ScheduleParts";
 
-const iso = (d) => d.toISOString().slice(0, 10);
+const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 const addDays = (d, n) => { const x = new Date(d); x.setDate(x.getDate() + n); return x; };
 const startOfWeek = (d) => { const x = new Date(d); x.setDate(x.getDate() - ((x.getDay() + 6) % 7)); return x; };
 

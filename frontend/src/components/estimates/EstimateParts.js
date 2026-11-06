@@ -3,6 +3,8 @@ import { X, Send, Trash2, Upload, Image as ImageIcon } from "lucide-react";
 const inp = "w-full px-3 py-2 rounded-md border border-input bg-background text-sm focus:ring-2 focus:ring-primary focus:outline-none";
 const lbl = "block text-xs uppercase tracking-wider text-muted-foreground mb-1.5";
 
+const STATUS_CLS = { sent: "bg-blue-500/15 text-blue-500", approved: "bg-green-500/15 text-green-500" };
+
 export const lineTotal = (li) => li.reduce((s, l) => s + (Number(l.qty) || 0) * (Number(l.unit_price) || 0), 0);
 
 export function EstimateCard({ e, onEdit, onSend, onDelete }) {
@@ -10,11 +12,11 @@ export function EstimateCard({ e, onEdit, onSend, onDelete }) {
     <div className="border border-border rounded-md bg-card p-5" data-testid="estimate-card">
       <div className="flex items-center justify-between mb-2">
         <h3 className="font-head font-bold">{e.customer_name}</h3>
-        <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${e.status === "sent" ? "bg-green-500/15 text-green-500" : "bg-muted text-muted-foreground"}`}>{e.status}</span>
+        <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${STATUS_CLS[e.status] || "bg-muted text-muted-foreground"}`} data-testid="estimate-status">{e.deposit_paid ? "deposit paid" : e.status}</span>
       </div>
       <div className="text-xs text-muted-foreground mb-3">{e.customer_email || "no email"}</div>
       <div className="font-head font-extrabold text-2xl mb-1">${(e.total || 0).toLocaleString()}</div>
-      <div className="text-xs text-muted-foreground mb-4">{e.line_items?.length || 0} line items · {e.photos?.length || 0} photos</div>
+      <div className="text-xs text-muted-foreground mb-4">{e.line_items?.length || 0} line items · {e.deposit_percent ?? 25}% deposit{e.signature_name ? ` · signed by ${e.signature_name}` : ""}</div>
       <div className="flex gap-2">
         <button onClick={() => onEdit(e)} data-testid="estimate-edit-btn" className="flex-1 py-2 rounded-md border border-border text-sm font-medium hover:bg-muted transition-colors">Edit</button>
         <button onClick={() => onSend(e.id)} data-testid="estimate-send-btn" className="flex-1 py-2 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:opacity-90 transition-opacity inline-flex items-center justify-center gap-1"><Send className="w-3.5 h-3.5" /> Send</button>
@@ -67,7 +69,10 @@ export function EstimateModal({ modal, setModal, editing, onSave, onClose, onUpl
           <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={onUpload} />
         </div>
 
-        <div className="font-head font-extrabold text-xl mt-4 mb-4" data-testid="estimate-total">Total: ${lineTotal(modal.line_items).toLocaleString()}</div>
+        <div className="flex items-end justify-between gap-4 mt-4 mb-4">
+          <div className="w-40"><label className={lbl}>Deposit %</label><input data-testid="estimate-deposit-percent" type="number" min="0" max="100" className={inp} value={modal.deposit_percent ?? 25} onChange={(e) => set({ deposit_percent: e.target.value === "" ? "" : Number(e.target.value) })} /></div>
+          <div className="font-head font-extrabold text-xl" data-testid="estimate-total">Total: ${lineTotal(modal.line_items).toLocaleString()}</div>
+        </div>
         <button data-testid="estimate-save-btn" onClick={onSave} className="w-full py-2.5 rounded-md bg-primary text-primary-foreground font-semibold">Save estimate</button>
       </div>
     </div>
