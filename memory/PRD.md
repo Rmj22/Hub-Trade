@@ -45,3 +45,6 @@
 - Schedule: db.schedule {date,job_id,employee_ids,vehicle_ids,equipment_ids,notes}; GET/PUT(upsert, id for move)/DELETE /api/schedule; pages/Schedule.js (week strip + day detail). Local-date keys.
 - Estimate approval+deposit: Estimate.deposit_percent (default 25), public_token on send, email link FRONTEND_URL/estimate/{token}; GET /api/public/estimates/{token}, POST .../approve (e-signature), POST .../deposit → Stripe Checkout (mode payment, sandbox key); _fulfil_payment handles kind=deposit via status poll + webhook. pages/PublicEstimate.js. Tests: iteration_9, iteration_10 pass (resend status bug fixed).
 - Phase 3 pending: Offline mode (clock-in/out + photos queued, cached jobs/crew read-only).
+
+## 2026-06 Phase 3 Offline mode v1
+- lib/offline.js: cachedGet (localStorage ht:cache:*), queue (ht:queue) for clock-in/out (+at timestamp) and job-photo (dataUrl→/upload→POST /jobs/{id}/photos), flushQueue on online/Sync now, useOffline hook. public/sw.js app-shell SW (prod only). OfflineBanner in Layout. AuthContext caches /auth/me (ht:user) so offline reload stays logged in. CrudManager/TimeCards/Team read-only cached offline. Backend: TimeCardAction.at (clamped to now), POST /api/jobs/{id}/photos. Tests: iteration_11, iteration_12.

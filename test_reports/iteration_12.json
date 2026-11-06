@@ -1,0 +1,31 @@
+{
+  "summary": "Retested the 4 offline-mode fixes from iteration_11 plus a quick regression, frontend only. All 4 fixes PASS. FIX1: after priming caches online, reloading /app/timecards with every /api/** request aborted stays on /app/timecards with no redirect to /login. The timecards-cached label ('Showing saved copy') is visible and the cached employee is listed. FIX2: queued an offline clock-in (status 'On site · pending', banner '(1 pending)'), then ran set_offline(False). The 'Synced 1 offline action' toast appeared without any click, the banner disappeared and ht:queue was []. FIX3: added a photo offline inside job-photos-modal (job-photos-queued shown). After reconnecting with the modal still open, the queued thumbnail turned into a real job-photo (2 -> 3) and the queued label went away. After closing, the Photos column showed 3 (was 1), with no manual reload. FIX4: /app/team offline (after an online visit) listed 38 cached team-row entries. Regression PASS: online clock in/out, online photo upload with caption, the crew modal opens with crew, vehicles and equipment, and logout removes ht:user. Reloading with the API blocked after logout redirects to /login.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {"flow": "Logout", "issue": "Logout removes only ht:user. ht:cache:/jobs, /employees, /timecards, /timecards/active and ht:queue remain in localStorage, so the next user on a shared device can see this company's cached data or sync its queued actions. This was an open action item from iteration_11.", "affected_selectors": ["[data-testid='logout-btn']"]}
+    ],
+    "design_issues": [
+      {"screen": "Team page (offline)", "issues": ["Write controls stay enabled while offline: the Add member button, the role select and the remove buttons. Using them just produces error toasts. The Jobs, Vehicles and Equipment pages hide write actions offline; Team should do the same and show a 'Showing saved copy' label."]}
+    ]
+  },
+  "test_report_links": [],
+  "action_items": [
+    "On logout, also remove ht:cache:* and ht:queue (or key them by user/company id)",
+    "Team page: hide or disable add-member, member-role-select and member-remove-btn when offline or showing cached data, and show a cached label"
+  ],
+  "critical_code_review_comments": [
+    "Jobs.js: the reloadKey effect runs on mount (online && pending===0), so CrudManager remounts and fetches /jobs twice on every visit. Skip the first run or bump the key only when pending goes from >0 to 0.",
+    "JobPhotosModal: if the queue flushes while the modal is open, CrudManager remounts and photoJob._reload points at the reload of the unmounted instance. It does no harm right now because the remount refetches anyway, but it is fragile.",
+    "AuthContext.refresh: a 401 response does not clear ht:user (it just sets the user to false). That is fine, but removing the key would be cleaner.",
+    "enqueue still has no guard against QuotaExceededError for large base64 photos (open from iteration_11).",
+    "GET /api/files/{path} company scoping is still open from iteration_11 (backend not retested)."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "not tested (frontend only)", "frontend": "100% of requested fixes (4/4) + regression 5/5"},
+  "seed_data_creation": "Added 2 photos (captions TEST_online, TEST_offline) to the job 'TEST Fmn Job'. Created clock-in/out timecards for Mike Rivera, all closed (he is left 'Off').",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Offline reload in preview: page.route('**/api/**', abort) then page.reload() (set_offline blocks HTML because there is no service worker). For SPA navigation while offline, use history.pushState plus a popstate event. Photo upload uses set_input_files on job-photo-file-input with a 1x1 png buffer."
+}
