@@ -87,3 +87,6 @@ ios-app/node_modules/
 ios-app/build/
 safari-extension/xcode/
 safari-extension/build/
+.env
+.env.*
+*.env
