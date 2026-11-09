@@ -3,7 +3,7 @@
   "appName": "Hub Trade",
   "webDir": "www",
   "server": {
-    "url": "https://www.trademainhub.com",
+    "url": "https://trademainhub.com",
     "cleartext": false
   },
   "ios": {
