@@ -1,0 +1,25 @@
+{
+  "summary": "Second retest of the iOS placeholder: PASSED for both requested checks. The fix is on disk in www/index.html, ios/App/App/public/index.html (identical) and frontend/public/ios-placeholder-test.html, and the preview URL serves it (200, contains 'inline-block'). Failure path at 390x844: Chromium replaces the page with chrome-error:// when a navigation is aborted, while WKWebView keeps the current page. To match iOS, I served the real preview file with window.location.replace swapped for a URL recorder and trademainhub.com aborted. At 1s: spinner shown, message 'Connecting…', #retry hidden, navigation to https://trademainhub.com/ attempted. At 6.8s: spinner hidden, message 'Hub Trade didn't load. Check your connection and try again.', #retry visible. Its computed display is 'block', not 'inline-block', because the body is a flex container and flex items are blockified; this is expected. Clicking 'Try again' shows the spinner again, sets the message to 'Connecting…', hides the button and attempts a second navigation to https://trademainhub.com/. Success path (no blocking): the page goes straight to https://trademainhub.com/, which renders the Hub Trade landing page (title 'Hub Trade', hero 'Run your entire field business from one app.').",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "placeholder go() retry", "issue": "The 6s fallback timer runs only once, at page load. If the retry also fails, the page shows the spinner and 'Connecting…' forever and the button never comes back. Seen 7s after the click: spin block, retry none.", "selector": "#retry", "priority": "MEDIUM"}
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [],
+  "action_items": [
+    "Optional but recommended: in go(), clear the timer and start a new 6s setTimeout so the 'Try again' button comes back after a failed retry. Copy the change to all three copies of the file."
+  ],
+  "critical_code_review_comments": [
+    "The fallback timer is not re-armed on retry, so the page can stay on the spinner forever.",
+    "The page waits 6s even when navigator.onLine is false. It could show the offline message right away."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "N/A (skipped)", "frontend": "100% of requested checks (1 medium enhancement found)"},
+  "seed_data_creation": "None",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Test method: page.context.route on the preview URL with route.fetch(), replace 'window.location.replace(APP_URL);' with a push to window.__nav, and abort trademainhub.com. A plain route.abort() gives chrome-error:// in Chromium, and a hanging route handler blocks Playwright. Check with getComputedStyle; for #retry expect 'block' (flex blockification) when visible."
+}
