@@ -1,0 +1,46 @@
+{
+  "summary": "Tested estimate approval + deposit end to end (backend + UI + real Stripe test checkout). Almost everything works. The deposit % input defaults to 25, a 30% estimate saves and the card shows '30% deposit', Send shows a toast and the badge becomes 'sent'. On the public page, approve-btn stays disabled until the signature has 2+ chars AND the box is checked, and after approving the approved-badge + deposit-box ($900 for $3,000 at 30%) appear and persist on reload. The existing token page showed 'signed by Dana Approver' / 'Pay $1,350.00 deposit'. Paying with 4242 card on checkout.stripe.com redirected back with session_id, polling turned it into the deposit-paid box, the URL param was cleared, the owner card badge reads 'deposit paid', and the bell shows both 'approved estimate' and 'Deposit of $1,350.00 received' (only one deposit notification). Public API: unknown token 404, deposit before approve 400, approve twice returns the same signature/approved_at, 0% deposit 400, 1-char signature 422, unknown session 404, send with no email 400. PUT on an approved estimate keeps status approved, the signature and the token. Regression: estimate edit/delete OK, Jobs crew modal OK. Found 1 real bug: re-sending an approved or paid estimate resets its status to 'sent'.",
+  "backend_issues": {
+    "critical": [
+      {"endpoint": "POST /api/estimates/{id}/send", "issue": "Always $sets status='sent'. Re-sending an approved (or deposit-paid) estimate downgrades it to 'sent'. The public page then shows the Approve box again, and the customer can re-approve, which overwrites signature_name/approved_at/signer_ip and adds a duplicate notification. The Send button is still shown on approved/paid cards. Reproduced in test_estimate_approval.py::test_full_flow.", "priority": "HIGH"}
+    ],
+    "minor": [
+      {"endpoint": "GET /api/public/estimates/{token} (_public_estimate)", "issue": "deposit_amount is always recomputed from the current total*pct. The stored deposit_amount (actually paid) is ignored. If the owner edits line items or deposit % after payment, the 'Deposit of $X received' box shows the wrong amount. Use est['deposit_amount'] when deposit_paid."},
+      {"endpoint": "PUT /api/estimates/{id}", "issue": "The owner can change line items, total or deposit % after the customer e-signed (and after the deposit was paid) with no warning or re-approval. The signed scope no longer matches. Consider locking it, or resetting the approval when pricing changes."},
+      {"endpoint": "POST /api/public/estimates/{token}/deposit", "issue": "A new Stripe session is created on every click, so a customer with two tabs can pay twice (the second _fulfil_payment is skipped but the card is still charged). origin_url comes from the client unvalidated and is used for success/cancel URLs (open redirect). Use FRONTEND_URL or whitelist it."},
+      {"endpoint": "GET /api/payments/status/{id} + _fulfil_payment", "issue": "Fulfilment runs whether or not this request actually flipped the row to paid. The deposit_paid check is a separate read, so concurrent polls/webhook can race into duplicate notifications. Only fulfil when update_one.modified_count == 1."},
+      {"endpoint": "POST /api/public/estimates/{token}/approve", "issue": "min_length is checked before strip(), so ' a' passes and is stored as 'a' (1 char)."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "EstimateCard", "issue": "The Send button is enabled on approved/deposit-paid estimates (triggers the status reset bug). Hide it or relabel it 'Resend link' without changing status.", "selector": "[data-testid=estimate-send-btn]", "priority": "MEDIUM"},
+      {"component": "PublicEstimate polling", "issue": "The 'Deposit received — thank you!' toast shows twice after the redirect (StrictMode double effect; the cancelled flag doesn't stop the in-flight first poll). Dev only, cosmetic.", "selector": "[data-sonner-toast]", "priority": "LOW"},
+      {"component": "LineItemsEditor", "issue": "Line-item desc/qty/price inputs and the remove X have no data-testid.", "selector": "input[placeholder='Qty']", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Stripe checkout", "issues": ["Checkout showed EUR (€1,252.77) as the default currency, with USD as an option (Stripe adaptive pricing based on location). Consider turning off adaptive pricing if you want USD only."]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/test_estimate_approval.py", "/app/test_reports/pytest/pytest_estimate_approval.xml"],
+  "action_items": [
+    "HIGH: In send_estimate, don't overwrite status when it is 'approved' (or deposit_paid), e.g. only set status='sent' if the current status is draft/sent. Hide/relabel Send on approved cards.",
+    "Show the stored deposit_amount after payment. Consider locking pricing edits after approval.",
+    "Validate origin_url (use FRONTEND_URL). Reuse an open deposit session or block a second payment.",
+    "Make fulfilment idempotent via modified_count. Strip the signature before validating its length."
+  ],
+  "critical_code_review_comments": [
+    "send_estimate unconditionally sets status='sent' (main bug).",
+    "_public_estimate recomputes deposit_amount instead of using the paid amount.",
+    "Notifications for deleted estimates stay (orphan estimate_id).",
+    "server.py is 1347 lines; estimates/public/payments should be split into routers."
+  ],
+  "updated_files": ["/app/backend/tests/test_estimate_approval.py"],
+  "success_rate": {"backend": "95% (1 of 7 new tests failed, a real bug; the full suite is 80/85 with 4 flaky crew/audit failures that pass on a solo rerun because of parallel-run data contention)", "frontend": "100% of the requested flows"},
+  "flaky_tests": ["test_audit_logs.py::test_csv_export_row_count_matches_list and test_crew_schedule.py TestCrew (3 tests) failed when the whole suite ran in parallel and passed 29/29 on a solo rerun"],
+  "seed_data_creation": "The existing 'Dana Approver' estimate (token NtGUrbGFo0OSiqIW0EUCp7-R8zKYbUiR) is now deposit_paid=true ($1,350, real Stripe test payment) as the request asked. TEST_ estimates were created and deleted by id. Their approval notifications remain in the notifications collection.",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Stripe hosted checkout: click the Card accordion with locator('[data-testid=card-accordion-item-button]').evaluate('el=>el.click()'), then fill #cardNumber/#cardExpiry/#cardCvc/#billingName and click [data-testid=hosted-payment-submit-button]. Run pytest with TEST_OWNER_PASSWORD and REACT_APP_BACKEND_URL exported. The Dana token is already paid, so create a fresh estimate for further payment tests."
+}

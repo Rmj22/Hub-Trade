@@ -105,7 +105,7 @@ Set both under each target ▸ **Signing & Capabilities ▸ Bundle Identifier**.
 4. Select the app scheme and **Run** (⌘R). The container app launches.
 5. Enable it: **Safari → Settings → Extensions → Hub Trade Companion** (turn on).
    - For unsigned local builds: **Safari → Settings → Advanced → “Show features for web developers”**, then **Develop → Allow Unsigned Extensions**.
-6. Grant the extension access to `trade-hub-910.emergent.host` when prompted.
+6. Grant the extension access to `www.trademainhub.com` when prompted.
 
 ## Test in Chrome/Edge (quick sanity check)
 `chrome://extensions` → enable **Developer mode** → **Load unpacked** → select the `safari-extension/` folder.

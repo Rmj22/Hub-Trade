@@ -16,13 +16,21 @@ import bcrypt
 import jwt
 import stripe
 import httpx
+import re
+import hmac
+import base64
+import ipaddress
+from html import escape
+from html.parser import HTMLParser
+from urllib.parse import urlparse
 import requests
-from fastapi import FastAPI, APIRouter, HTTPException, Request, Response, Depends, UploadFile, File, Header, Query
+from fastapi import FastAPI, APIRouter, HTTPException, Request, Response, Depends, UploadFile, File, Header, Query, BackgroundTasks
 from starlette.middleware.cors import CORSMiddleware
 from starlette.responses import Response as StarletteResponse
 from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel, Field, EmailStr, BeforeValidator, ConfigDict
 from bson import ObjectId
+from estimate_pdf import build_estimate_pdf
 
 # ---------- DB ----------
 client = AsyncIOMotorClient(os.environ["MONGO_URL"])
@@ -164,7 +172,20 @@ async def require_superadmin(user: dict = Depends(get_current_user)):
 
 
 def set_cookies(response: Response, token: str):
-    response.set_cookie("access_token", token, httponly=True, secure=True, samesite="none", max_age=604800, path="/")
+    response.set_cookie("access_token", token, httponly=True, secure=True, samesite="lax", max_age=604800, path="/")
+
+
+LOGIN_MAX_ATTEMPTS = 10
+LOGIN_WINDOW = timedelta(minutes=15)
+_login_attempts: dict = {}
+
+
+def _check_login_rate(key: str):
+    now = datetime.now(timezone.utc)
+    attempts = [t for t in _login_attempts.get(key, []) if now - t < LOGIN_WINDOW]
+    _login_attempts[key] = attempts
+    if len(attempts) >= LOGIN_MAX_ATTEMPTS:
+        raise HTTPException(429, "Too many login attempts. Try again in 15 minutes.")
 
 
 # ---------- Auth models ----------
@@ -201,8 +222,11 @@ async def register(req: RegisterReq, response: Response):
 @api.post("/auth/login")
 async def login(req: LoginReq, response: Response):
     email = req.email.lower()
+    rate_key = email
+    _check_login_rate(rate_key)
     user = await db.users.find_one({"email": email})
     if not user or not verify_password(req.password, user["password_hash"]):
+        _login_attempts.setdefault(rate_key, []).append(datetime.now(timezone.utc))
         raise HTTPException(status_code=401, detail="Invalid email or password")
     token = create_access_token(str(user["_id"]), email)
     set_cookies(response, token)
@@ -222,8 +246,43 @@ async def me(user: dict = Depends(get_current_user)):
     out = clean(user)
     if user.get("company_id"):
         comp = await db.companies.find_one({"_id": ObjectId(user["company_id"])})
+        comp = await _expire_trial(comp) if comp else None
         out["company"] = clean(comp) if comp else None
     return out
+
+
+async def _expire_trial(comp: dict) -> dict:
+    if comp.get("membership_status") != "trial":
+        return comp
+    ends = comp.get("trial_ends_at")
+    if ends and datetime.fromisoformat(ends) > datetime.now(timezone.utc):
+        comp["trial_days_left"] = max(1, (datetime.fromisoformat(ends) - datetime.now(timezone.utc)).days + 1)
+        return comp
+    await db.companies.update_one({"_id": comp["_id"]}, {"$set": {"membership_status": "expired", "plan": None}})
+    return {**comp, "membership_status": "expired", "plan": None}
+
+
+class TrialRedeem(BaseModel):
+    code: str
+
+
+@api.post("/membership/redeem-trial")
+async def redeem_trial(req: TrialRedeem, user: dict = Depends(require_role("owner"))):
+    valid = os.environ["TRIAL_CODE"]
+    days = int(os.environ["TRIAL_DAYS"])
+    if req.code.strip().upper() != valid.upper():
+        raise HTTPException(400, "Invalid trial code")
+    comp = await db.companies.find_one({"_id": ObjectId(user["company_id"])})
+    if comp.get("trial_used"):
+        raise HTTPException(400, "This company has already used its free trial")
+    if comp.get("membership_status") == "active":
+        raise HTTPException(400, "You already have an active membership")
+    ends = datetime.now(timezone.utc) + timedelta(days=days)
+    await db.companies.update_one({"_id": comp["_id"]}, {"$set": {
+        "plan": "medium", "membership_status": "trial", "trial_used": True,
+        "trial_started_at": now_iso(), "trial_ends_at": ends.isoformat()}})
+    await log_audit(user["company_id"], user, f"Redeemed {days}-day free trial code")
+    return {"ok": True, "plan": "medium", "trial_ends_at": ends.isoformat(), "days": days}
 
 
 # ---------- Generic CRUD factory for company-scoped resources ----------
@@ -288,7 +347,8 @@ class Estimate(BaseModel):
     line_items: List[dict] = []  # {desc, qty, unit_price}
     notes: str = ""
     photos: List[str] = []
-    status: str = "draft"  # draft, sent
+    status: str = "draft"  # draft, sent, approved
+    deposit_percent: float = 25
 
 
 class MessageReq(BaseModel):
@@ -299,6 +359,19 @@ class MessageReq(BaseModel):
 class TimeCardAction(BaseModel):
     employee_id: str
     job_id: Optional[str] = None
+    at: Optional[str] = None  # ISO timestamp from offline-queued actions
+
+
+def _action_time(at: Optional[str]) -> datetime:
+    if not at:
+        return datetime.now(timezone.utc)
+    try:
+        t = datetime.fromisoformat(at.replace("Z", "+00:00"))
+        if t.tzinfo is None:
+            t = t.replace(tzinfo=timezone.utc)
+        return min(t, datetime.now(timezone.utc))
+    except ValueError:
+        return datetime.now(timezone.utc)
 
 
 def crud_router(name: str, collection: str, Model, create_roles=("owner", "foreman")):
@@ -323,23 +396,25 @@ def crud_router(name: str, collection: str, Model, create_roles=("owner", "forem
 
     @r.get(f"/{name}/{{item_id}}")
     async def get_item(item_id: str, user: dict = Depends(get_current_user)):
-        item = await db[collection].find_one({"_id": ObjectId(item_id), "company_id": user["company_id"]})
+        item = await db[collection].find_one({"_id": _oid(item_id), "company_id": user["company_id"]})
         if not item:
             raise HTTPException(404, "Not found")
         return clean(item)
 
     @r.put(f"/{name}/{{item_id}}")
     async def update_item(item_id: str, payload: Model, user: dict = Depends(require_role(*create_roles))):
-        doc = payload.model_dump()
-        await db[collection].update_one({"_id": ObjectId(item_id), "company_id": user["company_id"]}, {"$set": doc})
-        item = await db[collection].find_one({"_id": ObjectId(item_id)})
+        doc = payload.model_dump(exclude_unset=True)
+        await db[collection].update_one({"_id": _oid(item_id), "company_id": user["company_id"]}, {"$set": doc})
+        item = await db[collection].find_one({"_id": _oid(item_id), "company_id": user["company_id"]})
+        if not item:
+            raise HTTPException(404, "Not found")
         await log_audit(user["company_id"], user, f"Updated {label}: {doc.get('name', '')}".strip())
         return clean(item)
 
     @r.delete(f"/{name}/{{item_id}}")
     async def delete_item(item_id: str, user: dict = Depends(require_role("owner"))):
-        gone = await db[collection].find_one({"_id": ObjectId(item_id), "company_id": user["company_id"]})
-        await db[collection].delete_one({"_id": ObjectId(item_id), "company_id": user["company_id"]})
+        gone = await db[collection].find_one({"_id": _oid(item_id), "company_id": user["company_id"]})
+        await db[collection].delete_one({"_id": _oid(item_id), "company_id": user["company_id"]})
         await log_audit(user["company_id"], user, f"Deleted {label}: {gone.get('name', '') if gone else ''}".strip())
         return {"status": "deleted"}
 
@@ -350,6 +425,106 @@ api.include_router(crud_router("jobs", "jobs", Job))
 api.include_router(crud_router("employees", "employees", Employee, create_roles=("owner",)))
 api.include_router(crud_router("vehicles", "vehicles", Vehicle))
 api.include_router(crud_router("equipment", "equipment", Equipment))
+
+
+# ---------- Crew assignment ----------
+class CrewAssign(BaseModel):
+    assigned_employees: List[str] = []
+    assigned_vehicles: List[str] = []
+    assigned_equipment: List[str] = []
+
+
+async def _valid_ids(coll: str, cid: str, ids: List[str]) -> List[str]:
+    oids = [ObjectId(i) for i in ids if ObjectId.is_valid(i)]
+    docs = await db[coll].find({"_id": {"$in": oids}, "company_id": cid}, {"_id": 1}).to_list(1000)
+    return [str(d["_id"]) for d in docs]
+
+
+def _oid(value: str) -> ObjectId:
+    if not ObjectId.is_valid(value):
+        raise HTTPException(404, "Not found")
+    return ObjectId(value)
+
+
+def _valid_date(value: str) -> str:
+    try:
+        return datetime.strptime(value, "%Y-%m-%d").strftime("%Y-%m-%d")
+    except ValueError:
+        raise HTTPException(400, "Date must be YYYY-MM-DD")
+
+
+@api.put("/jobs/{job_id}/crew")
+async def assign_crew(job_id: str, req: CrewAssign, user: dict = Depends(require_role("owner", "foreman"))):
+    cid = user["company_id"]
+    job = await db.jobs.find_one({"_id": _oid(job_id), "company_id": cid})
+    if not job:
+        raise HTTPException(404, "Job not found")
+    emps = await _valid_ids("employees", cid, req.assigned_employees)
+    vehs = await _valid_ids("vehicles", cid, req.assigned_vehicles)
+    eqs = await _valid_ids("equipment", cid, req.assigned_equipment)
+    await db.jobs.update_one({"_id": job["_id"]}, {"$set": {"assigned_employees": emps, "assigned_vehicles": vehs, "assigned_equipment": eqs}})
+    new_emps = set(emps) - set(job.get("assigned_employees", []))
+    if new_emps:
+        names = await db.employees.find({"_id": {"$in": [ObjectId(i) for i in new_emps]}}, {"name": 1}).to_list(100)
+        for n in names:
+            await db.notifications.insert_one({"company_id": cid, "message": f"{n['name']} assigned to job: {job['name']}",
+                                               "type": "assignment", "job_id": job_id, "employee_id": str(n["_id"]), "read": False, "created_at": now_iso()})
+    await log_audit(cid, user, f"Updated crew on job: {job['name']}")
+    return clean(await db.jobs.find_one({"_id": job["_id"]}))
+
+
+# ---------- Daily schedule ----------
+class ScheduleEntry(BaseModel):
+    id: Optional[str] = None
+    date: str  # YYYY-MM-DD
+    job_id: str
+    employee_ids: List[str] = []
+    vehicle_ids: List[str] = []
+    equipment_ids: List[str] = []
+    notes: str = ""
+
+
+@api.get("/schedule")
+async def list_schedule(start: str = Query(...), end: str = Query(...), user: dict = Depends(get_current_user)):
+    cid = user["company_id"]
+    rows = await db.schedule.find({"company_id": cid, "date": {"$gte": _valid_date(start), "$lte": _valid_date(end)}}).sort("date", 1).to_list(2000)
+    return [clean(r) for r in rows]
+
+
+@api.put("/schedule")
+async def upsert_schedule(req: ScheduleEntry, user: dict = Depends(require_role("owner", "foreman"))):
+    cid = user["company_id"]
+    date = _valid_date(req.date)
+    job = await db.jobs.find_one({"_id": _oid(req.job_id), "company_id": cid}, {"name": 1})
+    if not job:
+        raise HTTPException(404, "Job not found")
+    doc = {"company_id": cid, "date": date, "job_id": req.job_id, "notes": req.notes,
+           "employee_ids": await _valid_ids("employees", cid, req.employee_ids),
+           "vehicle_ids": await _valid_ids("vehicles", cid, req.vehicle_ids),
+           "equipment_ids": await _valid_ids("equipment", cid, req.equipment_ids),
+           "updated_at": now_iso(), "updated_by": user.get("name", "")}
+    key = {"company_id": cid, "date": date, "job_id": req.job_id}
+    if req.id:
+        existing = await db.schedule.find_one({"_id": _oid(req.id), "company_id": cid})
+        if not existing:
+            raise HTTPException(404, "Entry not found")
+        dup = await db.schedule.find_one({**key, "_id": {"$ne": existing["_id"]}})
+        if dup:
+            raise HTTPException(400, "That job is already scheduled on this date")
+        await db.schedule.update_one({"_id": existing["_id"]}, {"$set": doc})
+        key = {"_id": existing["_id"]}
+    else:
+        await db.schedule.update_one(key, {"$set": doc}, upsert=True)
+    await log_audit(cid, user, f"Scheduled {job['name']} for {date}")
+    return clean(await db.schedule.find_one(key))
+
+
+@api.delete("/schedule/{entry_id}")
+async def delete_schedule(entry_id: str, user: dict = Depends(require_role("owner", "foreman"))):
+    res = await db.schedule.delete_one({"_id": _oid(entry_id), "company_id": user["company_id"]})
+    if not res.deleted_count:
+        raise HTTPException(404, "Entry not found")
+    return {"ok": True}
 
 
 # ---------- Estimates (custom for email) ----------
@@ -374,28 +549,36 @@ async def create_estimate(payload: Estimate, user: dict = Depends(require_role("
 @api.put("/estimates/{item_id}")
 async def update_estimate(item_id: str, payload: Estimate, user: dict = Depends(require_role("owner", "foreman"))):
     doc = payload.model_dump()
+    doc.pop("status", None)
     doc["total"] = sum(li.get("qty", 1) * li.get("unit_price", 0) for li in payload.line_items)
-    await db.estimates.update_one({"_id": ObjectId(item_id), "company_id": user["company_id"]}, {"$set": doc})
-    item = await db.estimates.find_one({"_id": ObjectId(item_id)})
+    await db.estimates.update_one({"_id": _oid(item_id), "company_id": user["company_id"]}, {"$set": doc})
+    item = await db.estimates.find_one({"_id": _oid(item_id), "company_id": user["company_id"]})
+    if not item:
+        raise HTTPException(404, "Estimate not found")
     return clean(item)
 
 
 @api.delete("/estimates/{item_id}")
 async def delete_estimate(item_id: str, user: dict = Depends(require_role("owner"))):
-    await db.estimates.delete_one({"_id": ObjectId(item_id), "company_id": user["company_id"]})
+    await db.estimates.delete_one({"_id": _oid(item_id), "company_id": user["company_id"]})
     return {"status": "deleted"}
 
 
 @api.post("/estimates/{item_id}/send")
 async def send_estimate(item_id: str, user: dict = Depends(require_role("owner", "foreman"))):
-    est = await db.estimates.find_one({"_id": ObjectId(item_id), "company_id": user["company_id"]})
+    est = await db.estimates.find_one({"_id": _oid(item_id), "company_id": user["company_id"]})
     if not est:
         raise HTTPException(404, "Estimate not found")
     if not est.get("customer_email"):
         raise HTTPException(400, "Customer email required")
     comp = await db.companies.find_one({"_id": ObjectId(user["company_id"])})
+    token = est.get("public_token") or secrets.token_urlsafe(24)
+    if not est.get("public_token"):
+        await db.estimates.update_one({"_id": est["_id"]}, {"$set": {"public_token": token}})
+    link = f"{FRONTEND_URL}/estimate/{token}"
+    deposit = round(est.get("total", 0) * (est.get("deposit_percent", 25) or 0) / 100, 2)
     rows = "".join(
-        f"<tr><td style='padding:8px;border-bottom:1px solid #eee'>{li.get('desc','')}</td>"
+        f"<tr><td style='padding:8px;border-bottom:1px solid #eee'>{escape(str(li.get('desc','')))}</td>"
         f"<td style='padding:8px;border-bottom:1px solid #eee;text-align:center'>{li.get('qty',1)}</td>"
         f"<td style='padding:8px;border-bottom:1px solid #eee;text-align:right'>${li.get('unit_price',0):,.2f}</td>"
         f"<td style='padding:8px;border-bottom:1px solid #eee;text-align:right'>${li.get('qty',1)*li.get('unit_price',0):,.2f}</td></tr>"
@@ -410,10 +593,249 @@ async def send_estimate(item_id: str, user: dict = Depends(require_role("owner",
         {rows}
       </table>
       <h3 style='text-align:right'>Total: ${est.get('total',0):,.2f}</h3>
-      <p style='color:#555'>{est.get('notes','')}</p>
+      <p style='color:#555'>{escape(str(est.get('notes','')))}</p>
+      <p style='margin:28px 0;text-align:center'><a href='{link}' style='background:#FF3B30;color:#fff;padding:14px 24px;border-radius:6px;text-decoration:none;font-weight:bold'>Review &amp; approve estimate</a></p>
+      <p style='color:#555;font-size:13px;text-align:center'>Approve online with your e-signature{f" and pay the ${deposit:,.2f} deposit" if deposit > 0 else ""} to get on the schedule.</p>
+      <p style='color:#888;font-size:12px'>Sent by {escape(EMAIL_FROM_NAME)} on behalf of {escape(comp.get('name',''))}. We never ask for your password or card details by email.</p>
       </td></tr>
     </table>"""
     payload = {"to": [est["customer_email"]], "subject": f"Your estimate from {comp.get('name','Hub Trade')}", "html": html, "from_name": EMAIL_FROM_NAME}
+    await _post_email(payload)
+    status_upd = {"sent_at": now_iso()} if est.get("status") == "approved" else {"status": "sent", "sent_at": now_iso()}
+    await db.estimates.update_one({"_id": ObjectId(item_id)}, {"$set": status_upd})
+    await log_audit(user["company_id"], user, f"Sent estimate to {est.get('customer_email')}")
+    return {"status": "sent", "link": link}
+
+
+# ---------- Public estimate approval + deposit ----------
+def _public_estimate(est: dict, comp: dict) -> dict:
+    total = est.get("total", 0)
+    pct = est.get("deposit_percent", 25) or 0
+    return {
+        "company_name": comp.get("name", ""), "customer_name": est.get("customer_name", ""),
+        "line_items": est.get("line_items", []), "notes": est.get("notes", ""), "total": total,
+        "status": est.get("status", "sent"), "deposit_percent": pct, "deposit_amount": round(total * pct / 100, 2),
+        "approved_at": est.get("approved_at"), "signature_name": est.get("signature_name"),
+        "deposit_paid": bool(est.get("deposit_paid")), "deposit_paid_at": est.get("deposit_paid_at"),
+        "created_at": est.get("created_at"),
+    }
+
+
+async def _est_by_token(token: str):
+    est = await db.estimates.find_one({"public_token": token})
+    if not est:
+        raise HTTPException(404, "Estimate not found")
+    comp = await db.companies.find_one({"_id": ObjectId(est["company_id"])}, {"name": 1})
+    return est, comp or {}
+
+
+@api.get("/public/estimates/{token}")
+async def public_estimate(token: str):
+    est, comp = await _est_by_token(token)
+    return _public_estimate(est, comp)
+
+
+def _pdf_response(est: dict, comp: dict) -> Response:
+    pdf = build_estimate_pdf(est, comp)
+    name = f"estimate-{str(est['_id'])[-6:].upper()}-{(est.get('customer_name') or 'customer').replace(' ', '_')}.pdf"
+    return Response(content=pdf, media_type="application/pdf", headers={"Content-Disposition": f'inline; filename="{name}"'})
+
+
+@api.get("/public/estimates/{token}/pdf")
+async def public_estimate_pdf(token: str):
+    est, comp = await _est_by_token(token)
+    return _pdf_response(est, comp)
+
+
+@api.get("/estimates/{item_id}/pdf")
+async def estimate_pdf(item_id: str, user: dict = Depends(require_role("owner", "foreman"))):
+    est = await db.estimates.find_one({"_id": _oid(item_id), "company_id": user["company_id"]})
+    if not est:
+        raise HTTPException(404, "Estimate not found")
+    comp = await db.companies.find_one({"_id": ObjectId(user["company_id"])}, {"name": 1})
+    return _pdf_response(est, comp or {})
+
+
+class ApproveReq(BaseModel):
+    signature_name: str = Field(min_length=2, max_length=120)
+
+
+@api.post("/public/estimates/{token}/approve")
+async def approve_estimate(token: str, req: ApproveReq, request: Request, background: BackgroundTasks):
+    est, comp = await _est_by_token(token)
+    if est.get("status") == "approved":
+        return _public_estimate(est, comp)
+    upd = {"status": "approved", "approved_at": now_iso(), "signature_name": req.signature_name.strip(),
+           "signer_ip": request.client.host if request.client else None}
+    await db.estimates.update_one({"_id": est["_id"]}, {"$set": upd})
+    await db.notifications.insert_one({"company_id": est["company_id"], "type": "estimate",
+                                       "message": f"{est.get('customer_name','Customer')} approved estimate (${est.get('total',0):,.2f}) — signed {upd['signature_name']}",
+                                       "estimate_id": str(est["_id"]), "read": False, "created_at": now_iso()})
+    await log_audit(est["company_id"], None, f"Customer {upd['signature_name']} e-signed estimate for {est.get('customer_name','')}")
+    background.add_task(send_approval_emails, {**est, **upd}, comp, token)
+    return _public_estimate({**est, **upd}, comp)
+
+
+def _approval_html(heading: str, intro: str, est: dict, comp: dict, link: str) -> str:
+    return f"""
+    <table width='100%' style='font-family:Arial,sans-serif;max-width:600px;margin:auto'>
+      <tr><td style='padding:24px'>
+      <h2 style='color:#FF3B30;margin:0 0 12px'>{escape(heading)}</h2>
+      <p>{intro}</p>
+      <table width='100%' style='border-collapse:collapse;margin:16px 0'>
+        <tr><td style='padding:6px 0;color:#555'>Company</td><td style='padding:6px 0;text-align:right'><b>{escape(comp.get('name',''))}</b></td></tr>
+        <tr><td style='padding:6px 0;color:#555'>Customer</td><td style='padding:6px 0;text-align:right'>{escape(est.get('customer_name',''))}</td></tr>
+        <tr><td style='padding:6px 0;color:#555'>Total</td><td style='padding:6px 0;text-align:right'><b>${est.get('total',0):,.2f}</b></td></tr>
+        <tr><td style='padding:6px 0;color:#555'>Signed by</td><td style='padding:6px 0;text-align:right'>{escape(est.get('signature_name',''))}</td></tr>
+      </table>
+      <p>The signed estimate is attached as a PDF for your records.</p>
+      <p style='margin:24px 0'><a href='{link}' style='background:#FF3B30;color:#fff;padding:12px 22px;border-radius:6px;text-decoration:none;font-weight:bold'>View estimate</a></p>
+      <p style='color:#888;font-size:12px'>Sent by {escape(EMAIL_FROM_NAME)}. We never ask for your password or card details by email.</p>
+      </td></tr>
+    </table>"""
+
+
+async def send_approval_emails(est: dict, comp: dict, token: str):
+    pdf_b64 = base64.b64encode(build_estimate_pdf(est, comp)).decode()
+    attachment = [{"filename": f"estimate-{str(est['_id'])[-6:].upper()}-signed.pdf", "content": pdf_b64}]
+    link = f"{FRONTEND_URL}/estimate/{token}"
+    deposit = round(est.get("total", 0) * (est.get("deposit_percent", 25) or 0) / 100, 2)
+    subject = f"Signed estimate from {comp.get('name','Hub Trade')} — ${est.get('total',0):,.2f}"
+    sends = []
+    if est.get("customer_email"):
+        intro = (f"Thanks, {escape(est.get('signature_name',''))} — your approval has been recorded."
+                 + (f" You can pay the ${deposit:,.2f} deposit any time from the estimate page." if deposit > 0 and not est.get("deposit_paid") else ""))
+        sends.append((est["customer_email"], _approval_html("Your estimate is approved", intro, est, comp, link)))
+    owners = await db.users.find({"company_id": est["company_id"], "role": "owner"}, {"email": 1}).to_list(10)
+    owner_intro = f"{escape(est.get('customer_name',''))} just e-signed your estimate. Deposit due: ${deposit:,.2f}."
+    for o in owners:
+        sends.append((o["email"], _approval_html("Estimate approved & signed", owner_intro, est, comp, f"{FRONTEND_URL}/app/estimates")))
+    for to, html in sends:
+        try:
+            await _post_email({"to": [to], "subject": subject, "html": html, "from_name": EMAIL_FROM_NAME, "attachments": attachment})
+        except HTTPException:
+            continue
+    await db.estimates.update_one({"_id": est["_id"]}, {"$set": {"approval_emails_sent_at": now_iso()}})
+
+
+class DepositReq(BaseModel):
+    origin_url: str
+
+
+@api.post("/public/estimates/{token}/deposit")
+async def estimate_deposit_checkout(token: str, req: DepositReq):
+    est, comp = await _est_by_token(token)
+    if est.get("status") != "approved":
+        raise HTTPException(400, "Approve the estimate before paying the deposit")
+    if est.get("deposit_paid"):
+        raise HTTPException(400, "Deposit already paid")
+    amount = round(est.get("total", 0) * (est.get("deposit_percent", 25) or 0) / 100, 2)
+    if amount <= 0:
+        raise HTTPException(400, "No deposit required for this estimate")
+    session = stripe.checkout.Session.create(
+        mode="payment",
+        line_items=[{"quantity": 1, "price_data": {"currency": "usd", "unit_amount": int(round(amount * 100)),
+                     "product_data": {"name": f"Deposit — {comp.get('name','')} estimate for {est.get('customer_name','')}"}}}],
+        success_url=f"{req.origin_url}/estimate/{token}?session_id={{CHECKOUT_SESSION_ID}}",
+        cancel_url=f"{req.origin_url}/estimate/{token}",
+        customer_email=est.get("customer_email") or None,
+        metadata={"kind": "deposit", "estimate_id": str(est["_id"]), "company_id": est["company_id"]},
+    )
+    await db.payment_transactions.insert_one({
+        "session_id": session.id, "kind": "deposit", "estimate_id": str(est["_id"]), "company_id": est["company_id"],
+        "amount": amount, "currency": "usd", "status": "initiated", "payment_status": "pending",
+        "created_at": now_iso(), "updated_at": now_iso(),
+    })
+    return {"checkout_url": session.url, "session_id": session.id}
+
+
+async def _fulfil_payment(rec: dict):
+    if rec.get("kind") == "deposit":
+        est = await db.estimates.find_one({"_id": ObjectId(rec["estimate_id"])})
+        if est and not est.get("deposit_paid"):
+            await db.estimates.update_one({"_id": est["_id"]}, {"$set": {"deposit_paid": True, "deposit_paid_at": now_iso(), "deposit_amount": rec["amount"]}})
+            await db.notifications.insert_one({"company_id": rec["company_id"], "type": "payment",
+                                               "message": f"Deposit of ${rec['amount']:,.2f} received from {est.get('customer_name','customer')}",
+                                               "estimate_id": str(est["_id"]), "read": False, "created_at": now_iso()})
+            await log_audit(rec["company_id"], None, f"Deposit ${rec['amount']:,.2f} paid on estimate for {est.get('customer_name','')}")
+        return
+    await db.companies.update_one({"_id": ObjectId(rec["company_id"])},
+                                  {"$set": {"plan": rec["plan"], "membership_status": "active", "membership_since": now_iso()}})
+
+
+_SHORTENERS = ("bit.ly", "tinyurl.com", "t.co", "is.gd", "cutt.ly", "goo.gl", "rebrand.ly")
+_CRED_ASK = ("reply with your password", "reply with the code", "send your password", "cvv", "send us your password",
+             "enter your password below", "confirm your card number", "your full card number", "seed phrase",
+             "recovery phrase", "verify your card", "social security number", "confirm your bank details")
+_HOSTISH = re.compile(r"\b(?:https?://)?((?:[a-z0-9-]+\.)+[a-z]{2,})", re.I)
+
+
+def _host_ok(host: str) -> bool:
+    if not host or "xn--" in host:
+        return False
+    try:
+        ipaddress.ip_address(host)
+        return False
+    except ValueError:
+        pass
+    return not any(host == s or host.endswith("." + s) for s in _SHORTENERS)
+
+
+def _same_site(shown: str, real: str) -> bool:
+    return shown == real or real.endswith("." + shown) or shown.endswith("." + real)
+
+
+class _EmailScan(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.tags, self.urls, self.anchors = set(), [], []
+        self._href, self._text = None, []
+
+    def handle_starttag(self, tag, attrs):
+        self.tags.add(tag.lower())
+        self.urls += [v for k, v in attrs if k.lower() in ("href", "src") and v]
+        if tag.lower() == "a":
+            self._href = dict((k.lower(), v) for k, v in attrs).get("href")
+            self._text = []
+
+    def handle_data(self, data):
+        if self._href is not None:
+            self._text.append(data)
+
+    def handle_endtag(self, tag):
+        if tag.lower() == "a" and self._href is not None:
+            self.anchors.append((self._href, "".join(self._text)))
+            self._href, self._text = None, []
+
+
+def _assert_safe_email(subject: str, html: str) -> None:
+    scan = _EmailScan(); scan.feed(html)
+    if scan.tags & {"form", "input", "textarea", "select"}:
+        raise ValueError("No forms or input fields in email (G2)")
+    body = f"{subject}\n{html}".lower()
+    for p in _CRED_ASK:
+        if p in body:
+            raise ValueError(f"Email asks the recipient for credentials: {p!r} (G2)")
+    for url in scan.urls:
+        low = url.strip().lower()
+        if low.startswith(("mailto:", "tel:", "cid:", "#")):
+            continue
+        if not low.startswith("https://"):
+            raise ValueError(f"Email links/assets must be absolute https: {url!r} (G3)")
+        host = urlparse(low).hostname or ""
+        if not _host_ok(host) or urlparse(low).username is not None:
+            raise ValueError(f"Shortened, numeric-host or credential-bearing URL: {url!r} (G3)")
+    for href, text in scan.anchors:
+        real = urlparse(href.strip().lower()).hostname or ""
+        if not real:
+            continue
+        for m in _HOSTISH.finditer(text):
+            if not _same_site(m.group(1).lower(), real):
+                raise ValueError(f"Anchor text {m.group(1)!r} ≠ real link host {real!r} (G3)")
+
+
+async def _post_email(payload: dict) -> None:
+    _assert_safe_email(payload["subject"], payload["html"])
     try:
         async with httpx.AsyncClient(timeout=30) as c:
             resp = await c.post(f"{EMAIL_BASE_URL}/api/v1/email/send", headers={"X-Email-Key": EMAIL_KEY}, json=payload)
@@ -421,30 +843,136 @@ async def send_estimate(item_id: str, user: dict = Depends(require_role("owner",
     except Exception as e:
         logger.error(f"email failed {e}")
         raise HTTPException(502, "Failed to send email")
-    await db.estimates.update_one({"_id": ObjectId(item_id)}, {"$set": {"status": "sent", "sent_at": now_iso()}})
-    await log_audit(user["company_id"], user, f"Sent estimate to {est.get('customer_email')}")
-    return {"status": "sent"}
+
+
+# ---------- Trial reminder cron ----------
+TRIAL_REMINDER_DAYS = 2
+
+
+def _trial_reminder_html(owner_name: str, company_name: str, ends: datetime) -> str:
+    link = f"{FRONTEND_URL}/app/membership"
+    return f"""
+    <table width='100%' style='font-family:Arial,sans-serif;max-width:600px;margin:auto'>
+      <tr><td style='padding:24px'>
+      <h2 style='color:#FF3B30;margin:0 0 12px'>Your Hub Trade trial ends soon</h2>
+      <p>Hi {escape(owner_name)},</p>
+      <p>The free trial for <b>{escape(company_name)}</b> ends on <b>{ends.strftime('%B %d, %Y')}</b>.
+      Keep your jobs, crew, equipment and time cards running without interruption by choosing a plan now.</p>
+      <p style='margin:28px 0'><a href='{link}' style='background:#FF3B30;color:#fff;padding:14px 24px;border-radius:6px;text-decoration:none;font-weight:bold'>Upgrade my plan</a></p>
+      <p style='color:#555;font-size:13px'>Plans start at $60/mo, billed every 6 months. Your data is kept safe either way.</p>
+      <p style='color:#888;font-size:12px'>Sent by {escape(EMAIL_FROM_NAME)}. We never ask for your password or card details by email.</p>
+      </td></tr>
+    </table>"""
+
+
+def _trial_ended_html(owner_name: str, company_name: str) -> str:
+    link = f"{FRONTEND_URL}/app/membership"
+    return f"""
+    <table width='100%' style='font-family:Arial,sans-serif;max-width:600px;margin:auto'>
+      <tr><td style='padding:24px'>
+      <h2 style='color:#FF3B30;margin:0 0 12px'>Your Hub Trade trial has ended</h2>
+      <p>Hi {escape(owner_name)},</p>
+      <p>The free trial for <b>{escape(company_name)}</b> ended today. Your jobs, crew, equipment, estimates and
+      time cards are all saved — pick a plan to reactivate your workspace in one tap.</p>
+      <p style='margin:28px 0'><a href='{link}' style='background:#FF3B30;color:#fff;padding:14px 24px;border-radius:6px;text-decoration:none;font-weight:bold'>Reactivate my workspace</a></p>
+      <p style='color:#555;font-size:13px'>Plans start at $60/mo, billed every 6 months.</p>
+      <p style='color:#888;font-size:12px'>Sent by {escape(EMAIL_FROM_NAME)}. We never ask for your password or card details by email.</p>
+      </td></tr>
+    </table>"""
+
+
+async def _email_owners(comp: dict, subject: str, html_for: callable) -> int:
+    owners = await db.users.find({"company_id": str(comp["_id"]), "role": "owner"}, {"email": 1, "name": 1}).to_list(10)
+    sent = 0
+    for o in owners:
+        try:
+            await _post_email({"to": [o["email"]], "subject": subject, "html": html_for(o.get("name") or "there"), "from_name": EMAIL_FROM_NAME})
+            sent += 1
+        except HTTPException:
+            continue
+    return sent
+
+
+async def run_trial_reminders() -> int:
+    now = datetime.now(timezone.utc)
+    horizon = (now + timedelta(days=TRIAL_REMINDER_DAYS)).isoformat()
+    comps = await db.companies.find({"membership_status": "trial", "trial_reminder_sent": {"$ne": True},
+                                     "trial_ends_at": {"$gt": now.isoformat(), "$lte": horizon}}).to_list(500)
+    sent = 0
+    for comp in comps:
+        ends = datetime.fromisoformat(comp["trial_ends_at"])
+        sent += await _email_owners(comp, f"Your Hub Trade free trial ends in {TRIAL_REMINDER_DAYS} days",
+                                    lambda n, c=comp: _trial_reminder_html(n, c.get("name", ""), ends))
+        await db.companies.update_one({"_id": comp["_id"]}, {"$set": {"trial_reminder_sent": True, "trial_reminder_sent_at": now_iso()}})
+    logger.info(f"trial reminders sent: {sent}")
+    return sent
+
+
+async def run_trial_ended() -> int:
+    now = datetime.now(timezone.utc)
+    comps = await db.companies.find({"membership_status": {"$in": ["trial", "expired"]}, "trial_ended_email_sent": {"$ne": True},
+                                     "trial_ends_at": {"$lte": now.isoformat()}}).to_list(500)
+    sent = 0
+    for comp in comps:
+        await db.companies.update_one({"_id": comp["_id"]}, {"$set": {"membership_status": "expired", "plan": None,
+                                                                      "trial_ended_email_sent": True, "trial_ended_email_sent_at": now_iso()}})
+        sent += await _email_owners(comp, "Your Hub Trade free trial has ended", lambda n, c=comp: _trial_ended_html(n, c.get("name", "")))
+    logger.info(f"trial ended emails sent: {sent}")
+    return sent
+
+
+async def run_trial_jobs():
+    await run_trial_reminders()
+    await run_trial_ended()
+
+
+@api.post("/cron/trial-reminders")
+async def cron_trial_reminders(background: BackgroundTasks, authorization: str = Header(None), x_webhook_id: str = Header(None)):
+    # Cron endpoints must ack 2xx immediately; enqueue/background the actual work.
+    expected = os.environ["WEBHOOK_CRON_SECRET"]
+    token = authorization.split(" ", 1)[1] if authorization and authorization.lower().startswith("bearer ") else ""
+    if not hmac.compare_digest(token, expected):
+        raise HTTPException(401, "Unauthorized")
+    run_id = x_webhook_id or str(uuid.uuid4())
+    if await db.cron_runs.find_one({"run_id": run_id}):
+        return {"status": "duplicate"}
+    await db.cron_runs.insert_one({"run_id": run_id, "job": "trial-reminders", "created_at": now_iso()})
+    background.add_task(run_trial_jobs)
+    return {"status": "accepted"}
 
 
 # ---------- File upload ----------
+ALLOWED_UPLOAD_TYPES = {"image/jpeg", "image/png", "image/webp", "image/gif", "image/heic", "application/pdf"}
+MAX_UPLOAD_BYTES = 10 * 1024 * 1024
+
+
 @api.post("/upload")
 async def upload(file: UploadFile = File(...), user: dict = Depends(get_current_user)):
-    ext = file.filename.split(".")[-1] if "." in file.filename else "bin"
-    path = f"{APP_NAME}/{user['company_id']}/{uuid.uuid4()}.{ext}"
+    ct = (file.content_type or "").lower()
+    if ct not in ALLOWED_UPLOAD_TYPES:
+        raise HTTPException(400, "Only JPG, PNG, WEBP, GIF, HEIC images and PDF files are allowed")
     data = await file.read()
-    result = put_object(path, data, file.content_type or "application/octet-stream")
-    await db.files.insert_one({"storage_path": result["path"], "content_type": file.content_type,
+    if len(data) > MAX_UPLOAD_BYTES:
+        raise HTTPException(413, "File too large (max 10 MB)")
+    ext = {"image/jpeg": "jpg", "image/png": "png", "image/webp": "webp", "image/gif": "gif", "image/heic": "heic", "application/pdf": "pdf"}[ct]
+    path = f"{APP_NAME}/{user['company_id']}/{uuid.uuid4()}.{ext}"
+    result = put_object(path, data, ct)
+    await db.files.insert_one({"storage_path": result["path"], "content_type": ct,
                                "company_id": user["company_id"], "is_deleted": False, "created_at": now_iso()})
     return {"path": result["path"]}
 
 
 @api.get("/files/{path:path}")
-async def download_file(path: str, auth: str = Query(None), authorization: str = Header(None)):
-    record = await db.files.find_one({"storage_path": path, "is_deleted": False})
+async def download_file(path: str, user: dict = Depends(get_current_user)):
+    record = await db.files.find_one({"storage_path": path, "company_id": user["company_id"], "is_deleted": False})
     if not record:
         raise HTTPException(404, "File not found")
-    data, ct = get_object(path)
-    return StarletteResponse(content=data, media_type=record.get("content_type", ct))
+    data, _ = get_object(path)
+    ct = record.get("content_type") if record.get("content_type") in ALLOWED_UPLOAD_TYPES else "application/octet-stream"
+    disposition = "inline" if ct.startswith("image/") else "attachment"
+    return StarletteResponse(content=data, media_type=ct, headers={
+        "X-Content-Type-Options": "nosniff", "Content-Disposition": f'{disposition}; filename="{path.rsplit("/", 1)[-1]}"',
+        "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox"})
 
 
 # ---------- Time cards ----------
@@ -454,7 +982,7 @@ async def clock_in(req: TimeCardAction, user: dict = Depends(get_current_user)):
     if existing:
         raise HTTPException(400, "Already clocked in")
     doc = {"employee_id": req.employee_id, "job_id": req.job_id, "company_id": user["company_id"],
-           "clock_in": now_iso(), "clock_out": None, "created_at": now_iso()}
+           "clock_in": _action_time(req.at).isoformat(), "clock_out": None, "created_at": now_iso(), "offline_synced": bool(req.at)}
     res = await db.timecards.insert_one(doc)
     doc["_id"] = res.inserted_id
     emp = await db.employees.find_one({"_id": ObjectId(req.employee_id)}) if ObjectId.is_valid(req.employee_id) else None
@@ -468,7 +996,7 @@ async def clock_out(req: TimeCardAction, user: dict = Depends(get_current_user))
     if not tc:
         raise HTTPException(400, "Not clocked in")
     ci = datetime.fromisoformat(tc["clock_in"])
-    out = datetime.now(timezone.utc)
+    out = max(_action_time(req.at), ci)
     hours = round((out - ci).total_seconds() / 3600, 2)
     await db.timecards.update_one({"_id": tc["_id"]}, {"$set": {"clock_out": out.isoformat(), "hours": hours}})
     tc = await db.timecards.find_one({"_id": tc["_id"]})
@@ -481,6 +1009,24 @@ async def clock_out(req: TimeCardAction, user: dict = Depends(get_current_user))
 async def list_timecards(user: dict = Depends(get_current_user)):
     items = await db.timecards.find({"company_id": user["company_id"]}).sort("_id", -1).to_list(1000)
     return [clean(i) for i in items]
+
+
+class JobPhoto(BaseModel):
+    path: str
+    caption: str = ""
+    taken_at: Optional[str] = None
+
+
+@api.post("/jobs/{job_id}/photos")
+async def add_job_photo(job_id: str, req: JobPhoto, user: dict = Depends(get_current_user)):
+    job = await db.jobs.find_one({"_id": _oid(job_id), "company_id": user["company_id"]}, {"name": 1})
+    if not job:
+        raise HTTPException(404, "Job not found")
+    photo = {"id": str(uuid.uuid4()), "path": req.path, "caption": req.caption, "taken_at": req.taken_at or now_iso(),
+             "by": user.get("name", ""), "created_at": now_iso()}
+    await db.jobs.update_one({"_id": job["_id"]}, {"$push": {"photos": photo}})
+    await log_audit(user["company_id"], user, f"Added photo to job: {job['name']}")
+    return photo
 
 
 @api.get("/timecards/active")
@@ -636,7 +1182,7 @@ class RoleUpdateReq(BaseModel):
 async def update_role(user_id: str, req: RoleUpdateReq, user: dict = Depends(require_role("owner"))):
     if req.role not in ("owner", "foreman", "employee"):
         raise HTTPException(400, "Invalid role")
-    target = await db.users.find_one({"_id": ObjectId(user_id), "company_id": user["company_id"]})
+    target = await db.users.find_one({"_id": _oid(user_id), "company_id": user["company_id"]})
     if not target:
         raise HTTPException(404, "Member not found")
     if str(target["_id"]) == str(user["_id"]) and req.role != "owner":
@@ -764,15 +1310,20 @@ async def list_audit_logs(start: Optional[str] = None, end: Optional[str] = None
     return [clean(i) for i in items]
 
 
+def _csv_safe(v) -> str:
+    s = str(v if v is not None else "")
+    return "'" + s if s[:1] in ("=", "+", "-", "@", "\t", "\r") else s
+
+
 @api.get("/audit-logs/export")
 async def export_audit_logs(start: Optional[str] = None, end: Optional[str] = None, user: dict = Depends(require_role("owner"))):
     q = _audit_query(user["company_id"], start, end)
     items = await db.audit_logs.find(q).sort("created_at", -1).to_list(100000)
     buf = io.StringIO()
-    writer = csv.writer(buf)
+    writer = csv.writer(buf, quoting=csv.QUOTE_ALL)
     writer.writerow(["Timestamp", "User", "Action"])
     for i in items:
-        writer.writerow([i.get("created_at", ""), i.get("user_name", ""), i.get("action", "")])
+        writer.writerow([_csv_safe(i.get("created_at", "")), _csv_safe(i.get("user_name", "")), _csv_safe(i.get("action", ""))])
     filename = f"audit_logs_{start or 'all'}_to_{end or 'all'}.csv"
     return StarletteResponse(
         content=buf.getvalue(),
@@ -838,12 +1389,11 @@ async def payment_status(session_id: str):
                 await db.payment_transactions.update_one(
                     {"session_id": session_id, "payment_status": {"$ne": "paid"}},
                     {"$set": {"status": "completed", "payment_status": "paid", "updated_at": now_iso()}})
-                await db.companies.update_one({"_id": ObjectId(record["company_id"])},
-                    {"$set": {"plan": record["plan"], "membership_status": "active", "membership_since": now_iso()}})
+                await _fulfil_payment(record)
                 record = await db.payment_transactions.find_one({"session_id": session_id})
         except stripe.error.StripeError:
             pass
-    return {"session_id": record["session_id"], "status": record["status"], "payment_status": record["payment_status"], "plan": record.get("plan")}
+    return {"session_id": record["session_id"], "status": record["status"], "payment_status": record["payment_status"], "plan": record.get("plan"), "kind": record.get("kind")}
 
 
 @api.post("/stripe/webhook")
@@ -861,8 +1411,7 @@ async def stripe_webhook(request: Request):
             {"session_id": obj["id"], "payment_status": {"$ne": "paid"}},
             {"$set": {"status": "completed", "payment_status": obj.get("payment_status", "paid"), "updated_at": now_iso()}})
         if rec:
-            await db.companies.update_one({"_id": ObjectId(rec["company_id"])},
-                {"$set": {"plan": rec["plan"], "membership_status": "active", "membership_since": now_iso()}})
+            await _fulfil_payment(rec)
     return {"status": "ok"}
 
 

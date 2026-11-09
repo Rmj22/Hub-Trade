@@ -23,3 +23,41 @@
 ## 2026-06 Code review round 2
 - Split Dashboard/AuditLogs/AdminControl/Estimates/CrudManager into sub-components (components/dashboard, audit, admin, estimates, crud). Removed console.* calls; magic numbers → constants (lib/plans.js, POLL_INTERVAL_MS etc.); test truthiness asserts; random test passwords. Regression: iteration_8.json all pass; pytest 37/37.
 - NOTE: hook-dep findings for module imports (api, errMsg) and `is None` checks in server.py are false positives — intentionally left.
+
+## 2026-06 Custom domain
+- Domain www.trademainhub.com (Namecheap) added to CORS_ORIGINS, Capacitor server.url, Safari extension URLs/manifest. User must add CNAME in Namecheap + custom domain in Emergent Deploy and set CORS_ORIGINS in production env.
+
+## Deployment check #3
+- .env patterns re-added to .gitignore by platform auto-commit for the 3rd time; removed. Always strip before deploy check.
+
+## 2026-06 Free trial code
+- TRIAL_CODE="HUBTRADE10", TRIAL_DAYS="10" in backend/.env. POST /api/membership/redeem-trial (owner). Grants Medium plan, status "trial", one per company (trial_used). /auth/me auto-expires → status "expired", plan None. UI: Membership page redeem box + status line. Verified via curl + screenshot.
+
+## 2026-06 Trial reminder email
+- .emergent/crons.yml: trial-reminders daily 14:00 UTC → POST /api/cron/trial-reminders (Bearer WEBHOOK_CRON_SECRET, idempotent via X-Webhook-Id in db.cron_runs, BackgroundTasks). run_trial_reminders() emails owners of trial companies ending within 2 days (once, trial_reminder_sent flag) with FRONTEND_URL/app/membership upgrade link. Added _assert_safe_email gate + _post_email helper (also used by estimate send). Verified: 401 no auth, accepted, duplicate, email 202 to delivered@resend.dev.
+- Production: add WEBHOOK_CRON_SECRET, TRIAL_CODE, TRIAL_DAYS, FRONTEND_URL=https://www.trademainhub.com to Deployments → Secrets.
+
+## 2026-06 Trial ended email
+- run_trial_ended() in same daily cron: companies with trial_ends_at <= now → set expired/plan None, email owners "trial has ended" with Reactivate link, once (trial_ended_email_sent). Verified: sent 1, re-run sent 0.
+
+## 2026-06 Phase 1+2 (roadmap)
+- Crew Assignment: PUT /api/jobs/{id}/crew, CrewModal on Jobs page (pages/Jobs.js), assignment notifications. Job PUT uses exclude_unset so crew not wiped.
+- Schedule: db.schedule {date,job_id,employee_ids,vehicle_ids,equipment_ids,notes}; GET/PUT(upsert, id for move)/DELETE /api/schedule; pages/Schedule.js (week strip + day detail). Local-date keys.
+- Estimate approval+deposit: Estimate.deposit_percent (default 25), public_token on send, email link FRONTEND_URL/estimate/{token}; GET /api/public/estimates/{token}, POST .../approve (e-signature), POST .../deposit → Stripe Checkout (mode payment, sandbox key); _fulfil_payment handles kind=deposit via status poll + webhook. pages/PublicEstimate.js. Tests: iteration_9, iteration_10 pass (resend status bug fixed).
+- Phase 3 pending: Offline mode (clock-in/out + photos queued, cached jobs/crew read-only).
+
+## 2026-06 Phase 3 Offline mode v1
+- lib/offline.js: cachedGet (localStorage ht:cache:*), queue (ht:queue) for clock-in/out (+at timestamp) and job-photo (dataUrl→/upload→POST /jobs/{id}/photos), flushQueue on online/Sync now, useOffline hook. public/sw.js app-shell SW (prod only). OfflineBanner in Layout. AuthContext caches /auth/me (ht:user) so offline reload stays logged in. CrudManager/TimeCards/Team read-only cached offline. Backend: TimeCardAction.at (clamped to now), POST /api/jobs/{id}/photos. Tests: iteration_11, iteration_12.
+
+## 2026-06 Estimate PDF
+- backend/estimate_pdf.py (reportlab): branded letter PDF, line items, notes, signature block (signed: name/time/IP/deposit; unsigned: blank line). GET /api/estimates/{id}/pdf (owner/foreman), GET /api/public/estimates/{token}/pdf (customer). Buttons on Estimates card (estimate-pdf-btn) and public page (public-pdf-btn). Verified by rendering PDFs.
+
+## 2026-06 Security audit fixes
+- SEC-001: /api/upload allowlist (jpg/png/webp/gif/heic/pdf, 10MB), /api/files/{path} requires auth + company scope, nosniff + CSP sandbox, attachment for non-images.
+- SEC-002: post-update re-reads scoped by company_id; _oid() used in CRUD/estimates/team (404 on bad ids).
+- SEC-003: CSV export QUOTE_ALL + formula-prefix neutralisation (_csv_safe).
+- Hardening: cookie SameSite=lax (preview proxy may rewrite to None externally; local shows lax), login rate limit 10 fails/15min per email (in-memory), approval emails w/ PDF attachment.
+- pytest run: REACT_APP_BACKEND_URL=<url> TEST_OWNER_PASSWORD=... pytest tests -o addopts="" → 92/93 pass (1 flaky under load).
+
+## 2026-06 iOS black screen fix
+- Cause: www.trademainhub.com 308→trademainhub.com; limitsNavigationsToAppBoundDomains=true without WKAppBoundDomains blocked navigation, webview stuck on local placeholder. Fix: server.url=https://trademainhub.com, WKAppBoundDomains added to Info.plist (trademainhub.com, www, stripe), placeholder index.html now auto-redirects to app URL with retry/offline message. Requires rebuilding the .ipa.

@@ -1,7 +1,8 @@
 import { useEffect, useState, useCallback } from "react";
 import { api, errMsg } from "../lib/api";
+import { cachedGet, useOffline } from "../lib/offline";
 import { toast } from "sonner";
-import { Plus } from "lucide-react";
+import { Plus, CloudOff } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import { CrudTable, CrudModal } from "./crud/CrudParts";
 
@@ -9,19 +10,22 @@ const emptyForm = (fields) => Object.fromEntries(fields.map((f) => [f.key, f.def
 
 export default function CrudManager({ title, endpoint, testid, fields, columns, canWrite = true, renderExtra }) {
   const { user } = useAuth();
+  const { online } = useOffline();
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [fromCache, setFromCache] = useState(false);
   const [modal, setModal] = useState(null);
   const [editId, setEditId] = useState(null);
   const singular = title.replace(/s$/, "");
+  const writable = canWrite && online;
 
   const load = useCallback(async () => {
     setLoading(true);
-    try { const { data } = await api.get(`/${endpoint}`); setItems(data); }
+    try { const r = await cachedGet(`/${endpoint}`); setItems(r.data); setFromCache(r.fromCache); }
     catch (e) { toast.error(errMsg(e)); }
     setLoading(false);
   }, [endpoint]);
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { load(); }, [load, online]);
 
   const openNew = () => { setEditId(null); setModal(emptyForm(fields)); };
   const openEdit = (it) => { setEditId(it.id); setModal({ ...emptyForm(fields), ...it }); };
@@ -48,8 +52,9 @@ export default function CrudManager({ title, endpoint, testid, fields, columns, 
         <div>
           <div className="text-xs uppercase tracking-[0.2em] text-muted-foreground mb-1">Manage</div>
           <h1 className="font-head font-extrabold text-3xl sm:text-4xl tracking-tight">{title}</h1>
+          {fromCache && <div className="mt-1 inline-flex items-center gap-1.5 text-xs text-amber-500" data-testid={`${testid}-cached`}><CloudOff className="w-3.5 h-3.5" /> Offline — showing saved copy (read-only)</div>}
         </div>
-        {canWrite && (
+        {writable && (
           <button data-testid={`${testid}-add-btn`} onClick={openNew}
             className="inline-flex items-center gap-2 px-5 py-2.5 rounded-md bg-primary text-primary-foreground font-semibold text-sm hover:opacity-90 transition-opacity">
             <Plus className="w-4 h-4" /> New {singular}
@@ -64,7 +69,7 @@ export default function CrudManager({ title, endpoint, testid, fields, columns, 
         </div>
       )}
       {!loading && items.length > 0 && (
-        <CrudTable items={items} columns={columns} canWrite={canWrite} isOwner={user?.role === "owner"} testid={testid}
+        <CrudTable items={items} columns={columns} canWrite={canWrite} writable={writable} isOwner={user?.role === "owner"} testid={testid}
           onEdit={openEdit} onDelete={del} renderExtra={renderExtra} reload={load} />
       )}
 

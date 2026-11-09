@@ -20,7 +20,7 @@ export function Field({ f, value, onChange }) {
   return <input data-testid={`field-${f.key}`} type={INPUT_TYPES[f.type] || "text"} className={base} value={value ?? ""} onChange={handleChange} />;
 }
 
-export function CrudTable({ items, columns, canWrite, isOwner, testid, onEdit, onDelete, renderExtra, reload }) {
+export function CrudTable({ items, columns, canWrite, writable = true, isOwner, testid, onEdit, onDelete, renderExtra, reload }) {
   return (
     <div className="border border-border rounded-md overflow-hidden bg-card">
       <div className="overflow-x-auto">
@@ -28,17 +28,17 @@ export function CrudTable({ items, columns, canWrite, isOwner, testid, onEdit, o
           <thead>
             <tr className="border-b border-border bg-muted/50">
               {columns.map((c) => <th key={c.key} className="text-left font-semibold px-4 py-3 whitespace-nowrap">{c.label}</th>)}
-              {canWrite && <th className="px-4 py-3 text-right">Actions</th>}
+              {(canWrite || renderExtra) && <th className="px-4 py-3 text-right">Actions</th>}
             </tr>
           </thead>
           <tbody>
             {items.map((it) => (
               <tr key={it.id} className="border-b border-border last:border-0 hover:bg-muted/30 transition-colors" data-testid={`${testid}-row`}>
                 {columns.map((c) => <td key={c.key} className="px-4 py-3 whitespace-nowrap">{c.render ? c.render(it) : String(it[c.key] ?? "—")}</td>)}
-                {canWrite && (
+                {(canWrite || renderExtra) && (
                   <td className="px-4 py-3 text-right whitespace-nowrap">
-                    <button onClick={() => onEdit(it)} data-testid={`${testid}-edit-btn`} className="p-1.5 rounded hover:bg-muted transition-colors"><Pencil className="w-4 h-4" /></button>
-                    {isOwner && <button onClick={() => onDelete(it.id)} data-testid={`${testid}-delete-btn`} className="p-1.5 rounded hover:bg-muted text-destructive transition-colors"><Trash2 className="w-4 h-4" /></button>}
+                    {writable && <button onClick={() => onEdit(it)} data-testid={`${testid}-edit-btn`} className="p-1.5 rounded hover:bg-muted transition-colors"><Pencil className="w-4 h-4" /></button>}
+                    {writable && isOwner && <button onClick={() => onDelete(it.id)} data-testid={`${testid}-delete-btn`} className="p-1.5 rounded hover:bg-muted text-destructive transition-colors"><Trash2 className="w-4 h-4" /></button>}
                     {renderExtra && renderExtra(it, reload)}
                   </td>
                 )}

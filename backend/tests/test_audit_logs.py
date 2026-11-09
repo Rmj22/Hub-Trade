@@ -107,7 +107,7 @@ def test_csv_export_headers_and_format(owner):
     assert ".csv" in cdisp.lower()
     body = r.text
     first_line = body.splitlines()[0]
-    assert first_line == "Timestamp,User,Action", repr(first_line)
+    assert first_line.replace('"', "") == "Timestamp,User,Action", repr(first_line)
     # Parse subsequent rows
     reader = csv.reader(io.StringIO(body))
     rows = list(reader)

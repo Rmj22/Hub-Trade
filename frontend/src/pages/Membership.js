@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { api, errMsg } from "../lib/api";
 import { useAuth } from "../context/AuthContext";
 import { toast } from "sonner";
-import { Check, Loader2 } from "lucide-react";
+import { Check, Loader2, Gift } from "lucide-react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { PLAN_PRICES, BILLING_MONTHS } from "../lib/plans";
 
@@ -21,10 +21,24 @@ const PLANS = [
 export function MembershipPage() {
   const { user, refresh } = useAuth();
   const [loading, setLoading] = useState(null);
+  const [code, setCode] = useState("");
+  const [redeeming, setRedeeming] = useState(false);
   const current = user?.company?.plan;
-  const active = user?.company?.membership_status === "active";
+  const status = user?.company?.membership_status;
+  const active = status === "active" || status === "trial";
+  const trialUsed = user?.company?.trial_used;
 
   useEffect(() => { refresh(); }, [refresh]);
+
+  const redeem = async () => {
+    setRedeeming(true);
+    try {
+      const { data } = await api.post("/membership/redeem-trial", { code });
+      toast.success(`Free ${data.days}-day trial activated!`);
+      setCode(""); await refresh();
+    } catch (e) { toast.error(errMsg(e)); }
+    setRedeeming(false);
+  };
 
   const buttonLabel = (p, isCurrent) => {
     if (loading === p.key) return <Loader2 className="w-4 h-4 animate-spin" />;
@@ -46,8 +60,24 @@ export function MembershipPage() {
       <div className="mb-8">
         <div className="text-xs uppercase tracking-[0.2em] text-muted-foreground mb-1">Membership</div>
         <h1 className="font-head font-extrabold text-3xl sm:text-4xl tracking-tight">Choose your plan</h1>
-        <p className="text-muted-foreground mt-2">Billed every 6 months. {active && <span className="text-primary font-semibold">Current: {current} (active)</span>}</p>
+        <p className="text-muted-foreground mt-2">Billed every 6 months. {active && <span className="text-primary font-semibold" data-testid="membership-status">Current: {current} ({status === "trial" ? `free trial · ${user.company.trial_days_left} day${user.company.trial_days_left === 1 ? "" : "s"} left` : "active"})</span>}
+          {status === "expired" && <span className="text-destructive font-semibold" data-testid="membership-status">Your free trial has ended — choose a plan to continue.</span>}</p>
       </div>
+      {!trialUsed && status !== "active" && (
+        <div className="border border-dashed border-primary/50 rounded-md bg-primary/5 p-5 mb-8 flex flex-wrap items-center gap-3" data-testid="trial-code-box">
+          <Gift className="w-5 h-5 text-primary" />
+          <div className="flex-1 min-w-[200px]">
+            <div className="font-semibold text-sm">Have a free trial code?</div>
+            <div className="text-xs text-muted-foreground">Unlock 10 days of the Medium plan — no card required.</div>
+          </div>
+          <input data-testid="trial-code-input" value={code} onChange={(e) => setCode(e.target.value)} placeholder="Enter code"
+            className="px-3 py-2 rounded-md border border-input bg-background text-sm uppercase tracking-wider w-40 focus:ring-2 focus:ring-primary focus:outline-none" />
+          <button data-testid="trial-redeem-btn" disabled={!code || redeeming} onClick={redeem}
+            className="px-4 py-2 rounded-md bg-primary text-primary-foreground text-sm font-semibold hover:opacity-90 disabled:opacity-60">
+            {redeeming ? "…" : "Redeem"}
+          </button>
+        </div>
+      )}
       <div className="grid md:grid-cols-3 gap-6">
         {PLANS.map((p) => {
           const isCurrent = active && current === p.key;

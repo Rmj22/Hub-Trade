@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="7" time="13.266" timestamp="2026-11-06T03:14:11.742573+00:00" hostname="agent-env-e99aa617-2785-428c-8476-caea679b97a6"><testcase classname="tests.test_estimate_approval.TestPublic" name="test_unknown_token_404" time="0.303" /><testcase classname="tests.test_estimate_approval.TestPublic" name="test_existing_token" time="0.188" /><testcase classname="tests.test_estimate_approval.TestPublic" name="test_full_flow" time="9.615"><failure message="AssertionError: Re-sending an approved estimate resets status to 'sent'&#10;assert 'sent' == 'approved'&#10;  &#10;  - approved&#10;  + sent">backend/tests/test_estimate_approval.py:107: in test_full_flow
+    assert p["status"] == "approved", "Re-sending an approved estimate resets status to 'sent'"
+E   AssertionError: Re-sending an approved estimate resets status to 'sent'
+E   assert 'sent' == 'approved'
+E     
+E     - approved
+E     + sent</failure></testcase><testcase classname="tests.test_estimate_approval.TestPublic" name="test_zero_deposit" time="2.111" /><testcase classname="tests.test_estimate_approval.TestPublic" name="test_payment_status_unknown" time="0.071" /><testcase classname="tests.test_estimate_approval.TestPublic" name="test_send_without_email" time="0.109" /><testcase classname="tests.test_estimate_approval.TestPublic" name="test_notifications_has_approved" time="0.274" /></testsuite></testsuites>

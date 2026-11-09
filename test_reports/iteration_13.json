@@ -1,0 +1,33 @@
+{
+  "summary": "iOS (Capacitor) load fix check. PASSED: 1) www.trademainhub.com returns 308 to trademainhub.com/, which returns 200. At 390x844 the Hub Trade landing renders (logo, Log in, Start free) and /login shows the login form. 2) https://trademainhub.com/api/auth/me returns 401 JSON {detail:'Not authenticated'}. 3) Logging in on prod as tester@hubtrade.app returns 200 and lands on /app, showing the 'Tester Construction LLC' owner dashboard. 4) Config: both capacitor.config.json files have server.url https://trademainhub.com. Info.plist WKAppBoundDomains contains trademainhub.com, www.trademainhub.com, checkout.stripe.com and js.stripe.com. ios/App/App/public/index.html is identical to www/index.html. 5) The placeholder redirects at once: served from a stub origin, it landed on https://trademainhub.com/. FAILED: the placeholder's 6s fallback. After 6s the spinner hides and the message changes, but the 'Try again' button stays hidden (computed display:none).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "ios-app/www/index.html (and ios/App/App/public/index.html) placeholder", "issue": "The 'Try again' button never appears. The setTimeout and go() set retry.style.display = \"\", which removes the inline style, so the stylesheet rule '#retry { display: none; }' applies again. Users see a message telling them to try again but there is no button.", "selector": "#retry", "priority": "HIGH"},
+      {"component": "placeholder go()", "issue": "Tapping 'Try again' does not restart the 6s timer. If the retry also hangs, the spinner shows 'Connecting…' forever with no way to retry, which repeats the original stuck-screen symptom.", "selector": "#retry", "priority": "MEDIUM"}
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [],
+  "action_items": [
+    "In /app/ios-app/www/index.html: in the setTimeout, use retry.style.display = 'inline-block' (not ''); in go(), use spin.style.display = 'block'. Better: toggle a CSS class.",
+    "Move the 6s setTimeout inside go() and clear any previous timer, so each retry gets its own fallback.",
+    "Run `npx cap sync ios` (or copy again) so ios/App/App/public/index.html picks up the fix.",
+    "The placeholder test file /app/frontend/public/ios-placeholder-test.html does not exist. The preview URL serves the React SPA fallback and redirects to /. Add it only if you want an in-browser test page.",
+    "Optional: set server.errorPath in capacitor.config.json (Capacitor 5+) so a failed remote load shows a local fallback page."
+  ],
+  "critical_code_review_comments": [
+    "Placeholder display toggling uses '' and so falls back to the CSS rule. The retry button can never become visible.",
+    "The timer is armed only once at load and not again when the user retries.",
+    "The placeholder only appears while server.url is still loading or if the remote load fails. WKWebView keeps the current page when a provisional navigation fails, so the 6s fallback is the only error UI the user gets. It must work."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "N/A (skipped)", "frontend": "80% (4 of 5 checks passed; placeholder retry button failed)"},
+  "test_credentials": "tester@hubtrade.app / TestHub2026! works on production. The owner account was not used.",
+  "seed_data_creation": "None. No data was created on production (login only).",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Desktop Chromium replaces the page with chrome-error when location.replace is aborted. To test the placeholder timer, serve the HTML via page.context.route on a fake origin and replace 'window.location.replace(APP_URL)' with a stub, then check the computed display of #spin and #retry after 6.5s. Expect #retry to be visible after the fix.",
+  "rca of the issue": "Repro: load www/index.html with the navigation hanging or stubbed and wait 6s. #msg changes to the connection message and #spin hides, but #retry stays display:none (getComputedStyle). Cause: element.style.display='' only removes the inline style, so the stylesheet's #retry{display:none} wins. Fix: set an explicit display value or toggle a class."
+}

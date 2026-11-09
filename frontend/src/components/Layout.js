@@ -3,14 +3,16 @@ import { NavLink, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import ThemeToggle from "./ThemeToggle";
 import NotificationBell from "./NotificationBell";
+import OfflineBanner from "./OfflineBanner";
 import {
   LayoutDashboard, Briefcase, Users, Truck, Wrench, FileText,
-  Clock, MessageSquare, BarChart3, CreditCard, LogOut, Menu, HardHat, X, LifeBuoy, ShieldCheck, ScrollText,
+  Clock, MessageSquare, CalendarDays, BarChart3, CreditCard, LogOut, Menu, HardHat, X, LifeBuoy, ShieldCheck, ScrollText,
 } from "lucide-react";
 
 const NAV = [
   { to: "/app", label: "Dashboard", icon: LayoutDashboard, roles: ["owner", "foreman", "employee"], end: true },
   { to: "/app/jobs", label: "Jobs", icon: Briefcase, roles: ["owner", "foreman", "employee"] },
+  { to: "/app/schedule", label: "Schedule", icon: CalendarDays, roles: ["owner", "foreman", "employee"] },
   { to: "/app/team", label: "Team", icon: Users, roles: ["owner"] },
   { to: "/app/vehicles", label: "Vehicles", icon: Truck, roles: ["owner", "foreman"] },
   { to: "/app/equipment", label: "Equipment", icon: Wrench, roles: ["owner", "foreman"] },
@@ -103,7 +105,7 @@ export default function Layout({ children }) {
             </div>
           </div>
         </header>
-        <main className="flex-1 overflow-y-auto p-4 lg:p-8">{children}</main>
+        <main className="flex-1 overflow-y-auto"><OfflineBanner /><div className="p-4 lg:p-8">{children}</div></main>
       </div>
     </div>
   );

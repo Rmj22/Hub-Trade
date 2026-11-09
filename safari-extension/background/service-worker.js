@@ -1,7 +1,7 @@
 // Hub Trade Companion — background service worker (MV3, Safari/Chrome compatible)
 const api = typeof browser !== "undefined" ? browser : chrome;
 
-const DEFAULT_APP_URL = "https://trade-hub-910.emergent.host";
+const DEFAULT_APP_URL = "https://www.trademainhub.com";
 const MENU_ID = "hubtrade-save-note";
 
 // ---- storage helpers ----

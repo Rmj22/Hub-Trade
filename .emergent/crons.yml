@@ -1,0 +1,8 @@
+crons:
+  - name: trial-reminders
+    description: "Daily 14:00 UTC: emails owners 2 days before trial ends, and a reactivate note the day it lapses"
+    cron: "0 14 * * *"
+    endpoint: "{{BASE_URL}}/api/cron/trial-reminders"
+    method: POST
+    # Cron endpoints must ack 2xx immediately; enqueue/background the actual work.
+    enabled: true

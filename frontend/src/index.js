@@ -3,6 +3,9 @@ import ReactDOM from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import "@/index.css";
 import App from "@/App";
+import { registerServiceWorker } from "@/lib/offline";
+
+registerServiceWorker();
 
 const QUERY_STALE_MS = 60_000;
 
