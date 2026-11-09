@@ -58,3 +58,6 @@
 - SEC-003: CSV export QUOTE_ALL + formula-prefix neutralisation (_csv_safe).
 - Hardening: cookie SameSite=lax (preview proxy may rewrite to None externally; local shows lax), login rate limit 10 fails/15min per email (in-memory), approval emails w/ PDF attachment.
 - pytest run: REACT_APP_BACKEND_URL=<url> TEST_OWNER_PASSWORD=... pytest tests -o addopts="" → 92/93 pass (1 flaky under load).
+
+## 2026-06 iOS black screen fix
+- Cause: www.trademainhub.com 308→trademainhub.com; limitsNavigationsToAppBoundDomains=true without WKAppBoundDomains blocked navigation, webview stuck on local placeholder. Fix: server.url=https://trademainhub.com, WKAppBoundDomains added to Info.plist (trademainhub.com, www, stripe), placeholder index.html now auto-redirects to app URL with retry/offline message. Requires rebuilding the .ipa.
