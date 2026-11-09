@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Hub Trade</title>
+    <style>
+      body { margin: 0; background: #0b0f14; color: #e6edf3; font-family: -apple-system, sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; text-align: center; padding: 24px; box-sizing: border-box; }
+      .logo { font-weight: 800; font-size: 28px; letter-spacing: -0.5px; margin-bottom: 8px; }
+      .logo span { color: #ff3b30; }
+      p { color: #9aa4b2; font-size: 15px; max-width: 320px; line-height: 1.5; }
+      button { margin-top: 20px; background: #ff3b30; color: #fff; border: 0; border-radius: 10px; padding: 14px 28px; font-size: 16px; font-weight: 700; }
+      .spin { width: 28px; height: 28px; border: 3px solid #2a3240; border-top-color: #ff3b30; border-radius: 50%; animation: s 0.8s linear infinite; margin-bottom: 20px; }
+      @keyframes s { to { transform: rotate(360deg); } }
+      #retry { display: none; }
+    </style>
+  </head>
+  <body>
+    <div class="spin" id="spin"></div>
+    <div class="logo">Hub <span>Trade</span></div>
+    <p id="msg">Loading Hub Trade…</p>
+    <button id="retry" onclick="go()">Try again</button>
+    <script>
+      var APP_URL = "https://trademainhub.com/";
+      function go() { document.getElementById("spin").style.display = "block"; document.getElementById("retry").style.display = "none"; document.getElementById("msg").textContent = "Connecting…"; window.location.replace(APP_URL); }
+      setTimeout(function () {
+        document.getElementById("spin").style.display = "none";
+        document.getElementById("retry").style.display = "inline-block";
+        document.getElementById("msg").textContent = navigator.onLine ? "Hub Trade didn't load. Check your connection and try again." : "You're offline. Connect to the internet and try again.";
+      }, 6000);
+      go();
+    </script>
+  </body>
+</html>

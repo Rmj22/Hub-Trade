@@ -22,10 +22,10 @@
     <button id="retry" onclick="go()">Try again</button>
     <script>
       var APP_URL = "https://trademainhub.com/";
-      function go() { document.getElementById("spin").style.display = ""; document.getElementById("retry").style.display = "none"; document.getElementById("msg").textContent = "Connecting…"; window.location.replace(APP_URL); }
+      function go() { document.getElementById("spin").style.display = "block"; document.getElementById("retry").style.display = "none"; document.getElementById("msg").textContent = "Connecting…"; window.location.replace(APP_URL); }
       setTimeout(function () {
         document.getElementById("spin").style.display = "none";
-        document.getElementById("retry").style.display = "";
+        document.getElementById("retry").style.display = "inline-block";
         document.getElementById("msg").textContent = navigator.onLine ? "Hub Trade didn't load. Check your connection and try again." : "You're offline. Connect to the internet and try again.";
       }, 6000);
       go();
