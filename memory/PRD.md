@@ -64,3 +64,6 @@
 
 ## 2026-06 Pricing copy
 - All "billed every 6 months" copy → "Billed monthly" (Landing.js, Membership.js, server.py trial emails). BILLING_MONTHS removed from lib/plans.js. Stripe lookup keys (*_6mo) and payment links unchanged per user.
+
+## 2026-06 Privacy policy
+- User-supplied page saved at frontend/public/privacy-policy.html (served at /privacy-policy.html). Links: landing footer (footer-privacy-link), register form (register-privacy-link). Contact: admin@summitofficesolution.com.

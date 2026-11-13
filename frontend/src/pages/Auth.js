@@ -80,6 +80,9 @@ export function RegisterPage() {
             <button data-testid="register-submit-btn" disabled={loading} className="w-full py-3 rounded-md bg-primary text-primary-foreground font-semibold hover:opacity-90 transition-opacity disabled:opacity-50">
               {loading ? "Creating…" : "Create workspace"}
             </button>
+            <p className="text-xs text-muted-foreground text-center">
+              By creating a workspace you agree to our <a href="/privacy-policy.html" target="_blank" rel="noreferrer" data-testid="register-privacy-link" className="underline underline-offset-4 hover:text-foreground">Privacy Policy</a>.
+            </p>
           </form>
           <p className="text-sm text-muted-foreground mt-6 text-center">
             Have an account? <Link to="/login" className="text-primary font-semibold" data-testid="to-login-link">Log in</Link>

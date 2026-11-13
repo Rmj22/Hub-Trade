@@ -135,6 +135,12 @@ export default function Landing() {
       <footer className="border-t border-border py-10 px-4 sm:px-6 text-center text-sm text-muted-foreground">
         <div className="flex items-center gap-2 justify-center mb-2"><HardHat className="w-5 h-5 text-primary" /><span className="font-head font-bold">Hub Trade</span></div>
         Manage every part of your trade business from one platform.
+        <div className="mt-4 flex items-center justify-center gap-4">
+          <a href="/privacy-policy.html" target="_blank" rel="noreferrer" data-testid="footer-privacy-link" className="hover:text-foreground underline underline-offset-4 transition-colors">Privacy Policy</a>
+          <span>·</span>
+          <a href="mailto:admin@summitofficesolution.com" data-testid="footer-contact-link" className="hover:text-foreground underline underline-offset-4 transition-colors">Contact</a>
+        </div>
+        <div className="mt-2 text-xs">© {new Date().getFullYear()} Hub Trade. All rights reserved.</div>
       </footer>
     </div>
   );
