@@ -61,3 +61,6 @@
 
 ## 2026-06 iOS black screen fix
 - Cause: www.trademainhub.com 308→trademainhub.com; limitsNavigationsToAppBoundDomains=true without WKAppBoundDomains blocked navigation, webview stuck on local placeholder. Fix: server.url=https://trademainhub.com, WKAppBoundDomains added to Info.plist (trademainhub.com, www, stripe), placeholder index.html now auto-redirects to app URL with retry/offline message. Requires rebuilding the .ipa.
+
+## 2026-06 Pricing copy
+- All "billed every 6 months" copy → "Billed monthly" (Landing.js, Membership.js, server.py trial emails). BILLING_MONTHS removed from lib/plans.js. Stripe lookup keys (*_6mo) and payment links unchanged per user.

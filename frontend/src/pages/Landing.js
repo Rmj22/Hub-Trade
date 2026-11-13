@@ -2,7 +2,7 @@ import { Link } from "react-router-dom";
 import { motion } from "framer-motion";
 import { HardHat, ArrowRight, Briefcase, Users, Truck, Wrench, FileText, Clock, Check } from "lucide-react";
 import ThemeToggle from "../components/ThemeToggle";
-import { PLAN_PRICES, BILLING_MONTHS } from "../lib/plans";
+import { PLAN_PRICES } from "../lib/plans";
 
 const TRADE_TILES = [
   { label: "Framing Crews", img: "https://images.unsplash.com/photo-1646324554833-f0b6a479fa5d?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2NzV8MHwxfHNlYXJjaHwzfHxjb25zdHJ1Y3Rpb24lMjBmcmFtaW5nJTIwY3JldyUyMHdvb2QlMjBmcmFtaW5nfGVufDB8fHx8MTc4NjAzNTgxMXww&ixlib=rb-4.1.0&q=85" },
@@ -106,7 +106,7 @@ export default function Landing() {
       <section id="pricing" className="py-20 px-4 sm:px-6 border-t border-border">
         <div className="max-w-6xl mx-auto">
           <div className="text-xs uppercase tracking-[0.2em] text-muted-foreground mb-2">Membership</div>
-          <h2 className="font-head font-extrabold text-2xl sm:text-3xl lg:text-4xl tracking-tight mb-2">Simple plans. Billed every 6 months.</h2>
+          <h2 className="font-head font-extrabold text-2xl sm:text-3xl lg:text-4xl tracking-tight mb-2">Simple plans. Billed monthly.</h2>
           <p className="text-muted-foreground mb-12">Prices shown monthly.</p>
           <div className="grid md:grid-cols-3 gap-6">
             {PLANS.map((p) => (
@@ -117,7 +117,7 @@ export default function Landing() {
                   <span className="font-head font-extrabold text-4xl">${p.price}</span>
                   <span className="text-muted-foreground text-sm">/mo</span>
                 </div>
-                <div className="text-xs text-muted-foreground mb-6">${p.price * BILLING_MONTHS} billed every 6 months</div>
+                <div className="text-xs text-muted-foreground mb-6">Billed monthly</div>
                 <ul className="space-y-3 mb-8">
                   {p.feats.map((f) => (
                     <li key={f} className="flex items-start gap-2 text-sm"><Check className="w-4 h-4 text-primary mt-0.5 shrink-0" />{f}</li>

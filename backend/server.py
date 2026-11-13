@@ -859,7 +859,7 @@ def _trial_reminder_html(owner_name: str, company_name: str, ends: datetime) -> 
       <p>The free trial for <b>{escape(company_name)}</b> ends on <b>{ends.strftime('%B %d, %Y')}</b>.
       Keep your jobs, crew, equipment and time cards running without interruption by choosing a plan now.</p>
       <p style='margin:28px 0'><a href='{link}' style='background:#FF3B30;color:#fff;padding:14px 24px;border-radius:6px;text-decoration:none;font-weight:bold'>Upgrade my plan</a></p>
-      <p style='color:#555;font-size:13px'>Plans start at $60/mo, billed every 6 months. Your data is kept safe either way.</p>
+      <p style='color:#555;font-size:13px'>Plans start at $60/mo, billed monthly. Your data is kept safe either way.</p>
       <p style='color:#888;font-size:12px'>Sent by {escape(EMAIL_FROM_NAME)}. We never ask for your password or card details by email.</p>
       </td></tr>
     </table>"""
@@ -875,7 +875,7 @@ def _trial_ended_html(owner_name: str, company_name: str) -> str:
       <p>The free trial for <b>{escape(company_name)}</b> ended today. Your jobs, crew, equipment, estimates and
       time cards are all saved — pick a plan to reactivate your workspace in one tap.</p>
       <p style='margin:28px 0'><a href='{link}' style='background:#FF3B30;color:#fff;padding:14px 24px;border-radius:6px;text-decoration:none;font-weight:bold'>Reactivate my workspace</a></p>
-      <p style='color:#555;font-size:13px'>Plans start at $60/mo, billed every 6 months.</p>
+      <p style='color:#555;font-size:13px'>Plans start at $60/mo, billed monthly.</p>
       <p style='color:#888;font-size:12px'>Sent by {escape(EMAIL_FROM_NAME)}. We never ask for your password or card details by email.</p>
       </td></tr>
     </table>"""

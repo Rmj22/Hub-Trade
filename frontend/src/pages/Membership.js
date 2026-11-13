@@ -4,7 +4,7 @@ import { useAuth } from "../context/AuthContext";
 import { toast } from "sonner";
 import { Check, Loader2, Gift } from "lucide-react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { PLAN_PRICES, BILLING_MONTHS } from "../lib/plans";
+import { PLAN_PRICES } from "../lib/plans";
 
 const PAYMENT_LINKS = {
   startup: process.env.REACT_APP_STRIPE_PAYMENT_LINK_STARTUP,
@@ -60,7 +60,7 @@ export function MembershipPage() {
       <div className="mb-8">
         <div className="text-xs uppercase tracking-[0.2em] text-muted-foreground mb-1">Membership</div>
         <h1 className="font-head font-extrabold text-3xl sm:text-4xl tracking-tight">Choose your plan</h1>
-        <p className="text-muted-foreground mt-2">Billed every 6 months. {active && <span className="text-primary font-semibold" data-testid="membership-status">Current: {current} ({status === "trial" ? `free trial · ${user.company.trial_days_left} day${user.company.trial_days_left === 1 ? "" : "s"} left` : "active"})</span>}
+        <p className="text-muted-foreground mt-2">Billed monthly. {active && <span className="text-primary font-semibold" data-testid="membership-status">Current: {current} ({status === "trial" ? `free trial · ${user.company.trial_days_left} day${user.company.trial_days_left === 1 ? "" : "s"} left` : "active"})</span>}
           {status === "expired" && <span className="text-destructive font-semibold" data-testid="membership-status">Your free trial has ended — choose a plan to continue.</span>}</p>
       </div>
       {!trialUsed && status !== "active" && (
@@ -86,7 +86,7 @@ export function MembershipPage() {
               {p.popular && <div className="absolute -top-3 left-8 px-3 py-1 rounded-full bg-primary text-primary-foreground text-xs font-bold">Popular</div>}
               <h3 className="font-head font-bold text-xl mb-1">{p.name}</h3>
               <div className="flex items-baseline gap-1"><span className="font-head font-extrabold text-4xl">${p.price}</span><span className="text-muted-foreground text-sm">/mo</span></div>
-              <div className="text-xs text-muted-foreground mb-6">${p.price * BILLING_MONTHS} billed every 6 months</div>
+              <div className="text-xs text-muted-foreground mb-6">Billed monthly</div>
               <ul className="space-y-2 mb-8">
                 {p.feats.map((f) => <li key={f} className="flex items-center gap-2 text-sm"><Check className="w-4 h-4 text-primary shrink-0" />{f}</li>)}
               </ul>
