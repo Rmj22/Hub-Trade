@@ -71,7 +71,7 @@ export function RegisterPage() {
         </Link>
         <div className="border border-border rounded-md bg-card p-8">
           <h1 className="font-head font-extrabold text-3xl mb-2 tracking-tight">Start free</h1>
-          <p className="text-muted-foreground text-sm mb-6">You'll be the Owner of your company workspace.</p>
+          <p className="text-muted-foreground text-sm mb-6">15-day free trial of the Medium plan — no card, no code. You'll be the Owner of your company workspace.</p>
           <form onSubmit={submit} className="space-y-4">
             <input data-testid="register-name" className={inp} placeholder="Your name" value={form.name} onChange={set("name")} required />
             <input data-testid="register-company" className={inp} placeholder="Company name" value={form.company_name} onChange={set("company_name")} required />

@@ -67,3 +67,7 @@
 
 ## 2026-06 Privacy policy
 - User-supplied page saved at frontend/public/privacy-policy.html (served at /privacy-policy.html). Links: landing footer (footer-privacy-link), register form (register-privacy-link). Contact: admin@summitofficesolution.com.
+
+## 2026-06 Trial policy v2 (no code)
+- Register → Medium plan, status trial, 15 days (TRIAL_DAYS). Reminder 5 days before (TRIAL_REMINDER_DAYS=5). On end → status archived + archived_at; archived accounts get 402 on all routes except /auth,/membership,/payments,/stripe (require_not_archived wraps every authed route). Cron run_purge_archived deletes company + users + all company data after ARCHIVE_GRACE_DAYS=5. redeem-trial endpoint/UI removed. TrialBanner (days left / archived lock → redirect to membership). Paying (Stripe) sets active and clears archive.
+- Production Secrets: TRIAL_DAYS=15 (TRIAL_CODE no longer used).

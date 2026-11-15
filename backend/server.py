@@ -55,6 +55,10 @@ EMERGENT_KEY = os.environ.get("EMERGENT_LLM_KEY")
 APP_NAME = "fieldforge"
 storage_key = None
 
+TRIAL_DAYS = int(os.environ.get("TRIAL_DAYS", "15"))
+TRIAL_PLAN = "medium"
+ARCHIVE_GRACE_DAYS = int(os.environ.get("ARCHIVE_GRACE_DAYS", "5"))
+
 PLAN_LIMITS = {
     "startup": {"name": "Startup", "monthly": 60, "lookup_key": "startup_6mo", "employees": 20, "vehicles": 3, "jobs": 10, "equipment": 30, "data_hours": 5},
     "medium": {"name": "Medium", "monthly": 89, "lookup_key": "medium_6mo", "employees": 50, "vehicles": 10, "jobs": 30, "equipment": 60, "data_hours": 10},
@@ -157,15 +161,46 @@ async def get_current_user(request: Request) -> dict:
         raise HTTPException(status_code=401, detail="Invalid token")
 
 
+async def _expire_trial(comp: dict) -> dict:
+    now = datetime.now(timezone.utc)
+    status = comp.get("membership_status")
+    if status == "trial":
+        ends = comp.get("trial_ends_at")
+        if ends and datetime.fromisoformat(ends) > now:
+            comp["trial_days_left"] = max(1, (datetime.fromisoformat(ends) - now).days + 1)
+            return comp
+        upd = {"membership_status": "archived", "plan": None, "archived_at": now_iso()}
+        await db.companies.update_one({"_id": comp["_id"]}, {"$set": upd})
+        comp = {**comp, **upd}
+    if comp.get("membership_status") == "archived" and comp.get("archived_at"):
+        purge_at = datetime.fromisoformat(comp["archived_at"]) + timedelta(days=ARCHIVE_GRACE_DAYS)
+        comp["days_until_removal"] = max(0, (purge_at - now).days + 1)
+    return comp
+
+
+ARCHIVE_ALLOWED_PREFIXES = ("/api/auth/", "/api/membership", "/api/payments/", "/api/stripe/")
+
+
+async def require_not_archived(request: Request, user: dict = Depends(get_current_user)) -> dict:
+    if request.url.path.startswith(ARCHIVE_ALLOWED_PREFIXES) or user.get("is_superadmin"):
+        return user
+    comp = await db.companies.find_one({"_id": ObjectId(user["company_id"])}, {"membership_status": 1, "trial_ends_at": 1, "archived_at": 1})
+    if comp:
+        comp = await _expire_trial(comp)
+        if comp.get("membership_status") == "archived":
+            raise HTTPException(402, "Your free trial has ended and this account is archived. Choose a plan to reactivate it.")
+    return user
+
+
 def require_role(*roles):
-    async def dep(user: dict = Depends(get_current_user)):
+    async def dep(user: dict = Depends(require_not_archived)):
         if user.get("role") not in roles:
             raise HTTPException(status_code=403, detail="Insufficient permissions")
         return user
     return dep
 
 
-async def require_superadmin(user: dict = Depends(get_current_user)):
+async def require_superadmin(user: dict = Depends(require_not_archived)):
     if not user.get("is_superadmin"):
         raise HTTPException(status_code=403, detail="Admin access only")
     return user
@@ -207,7 +242,9 @@ async def register(req: RegisterReq, response: Response):
     email = req.email.lower()
     if await db.users.find_one({"email": email}):
         raise HTTPException(status_code=400, detail="Email already registered")
-    company = {"name": req.company_name, "plan": None, "membership_status": "inactive", "trade": "General", "created_at": now_iso()}
+    trial_ends = datetime.now(timezone.utc) + timedelta(days=TRIAL_DAYS)
+    company = {"name": req.company_name, "plan": TRIAL_PLAN, "membership_status": "trial", "trial_used": True,
+               "trial_started_at": now_iso(), "trial_ends_at": trial_ends.isoformat(), "trade": "General", "created_at": now_iso()}
     comp_res = await db.companies.insert_one(company)
     company_id = str(comp_res.inserted_id)
     user_doc = {"email": email, "password_hash": hash_password(req.password), "name": req.name,
@@ -242,7 +279,7 @@ async def logout(response: Response):
 
 
 @api.get("/auth/me")
-async def me(user: dict = Depends(get_current_user)):
+async def me(user: dict = Depends(require_not_archived)):
     out = clean(user)
     if user.get("company_id"):
         comp = await db.companies.find_one({"_id": ObjectId(user["company_id"])})
@@ -251,41 +288,6 @@ async def me(user: dict = Depends(get_current_user)):
     return out
 
 
-async def _expire_trial(comp: dict) -> dict:
-    if comp.get("membership_status") != "trial":
-        return comp
-    ends = comp.get("trial_ends_at")
-    if ends and datetime.fromisoformat(ends) > datetime.now(timezone.utc):
-        comp["trial_days_left"] = max(1, (datetime.fromisoformat(ends) - datetime.now(timezone.utc)).days + 1)
-        return comp
-    await db.companies.update_one({"_id": comp["_id"]}, {"$set": {"membership_status": "expired", "plan": None}})
-    return {**comp, "membership_status": "expired", "plan": None}
-
-
-class TrialRedeem(BaseModel):
-    code: str
-
-
-@api.post("/membership/redeem-trial")
-async def redeem_trial(req: TrialRedeem, user: dict = Depends(require_role("owner"))):
-    valid = os.environ["TRIAL_CODE"]
-    days = int(os.environ["TRIAL_DAYS"])
-    if req.code.strip().upper() != valid.upper():
-        raise HTTPException(400, "Invalid trial code")
-    comp = await db.companies.find_one({"_id": ObjectId(user["company_id"])})
-    if comp.get("trial_used"):
-        raise HTTPException(400, "This company has already used its free trial")
-    if comp.get("membership_status") == "active":
-        raise HTTPException(400, "You already have an active membership")
-    ends = datetime.now(timezone.utc) + timedelta(days=days)
-    await db.companies.update_one({"_id": comp["_id"]}, {"$set": {
-        "plan": "medium", "membership_status": "trial", "trial_used": True,
-        "trial_started_at": now_iso(), "trial_ends_at": ends.isoformat()}})
-    await log_audit(user["company_id"], user, f"Redeemed {days}-day free trial code")
-    return {"ok": True, "plan": "medium", "trial_ends_at": ends.isoformat(), "days": days}
-
-
-# ---------- Generic CRUD factory for company-scoped resources ----------
 async def scope(user):
     return user["company_id"]
 
@@ -378,7 +380,7 @@ def crud_router(name: str, collection: str, Model, create_roles=("owner", "forem
     r = APIRouter()
 
     @r.get(f"/{name}")
-    async def list_items(user: dict = Depends(get_current_user)):
+    async def list_items(user: dict = Depends(require_not_archived)):
         items = await db[collection].find({"company_id": user["company_id"]}).sort("_id", -1).to_list(1000)
         return [clean(i) for i in items]
 
@@ -395,7 +397,7 @@ def crud_router(name: str, collection: str, Model, create_roles=("owner", "forem
         return clean(doc)
 
     @r.get(f"/{name}/{{item_id}}")
-    async def get_item(item_id: str, user: dict = Depends(get_current_user)):
+    async def get_item(item_id: str, user: dict = Depends(require_not_archived)):
         item = await db[collection].find_one({"_id": _oid(item_id), "company_id": user["company_id"]})
         if not item:
             raise HTTPException(404, "Not found")
@@ -485,7 +487,7 @@ class ScheduleEntry(BaseModel):
 
 
 @api.get("/schedule")
-async def list_schedule(start: str = Query(...), end: str = Query(...), user: dict = Depends(get_current_user)):
+async def list_schedule(start: str = Query(...), end: str = Query(...), user: dict = Depends(require_not_archived)):
     cid = user["company_id"]
     rows = await db.schedule.find({"company_id": cid, "date": {"$gte": _valid_date(start), "$lte": _valid_date(end)}}).sort("date", 1).to_list(2000)
     return [clean(r) for r in rows]
@@ -529,7 +531,7 @@ async def delete_schedule(entry_id: str, user: dict = Depends(require_role("owne
 
 # ---------- Estimates (custom for email) ----------
 @api.get("/estimates")
-async def list_estimates(user: dict = Depends(get_current_user)):
+async def list_estimates(user: dict = Depends(require_not_archived)):
     items = await db.estimates.find({"company_id": user["company_id"]}).sort("_id", -1).to_list(1000)
     return [clean(i) for i in items]
 
@@ -846,7 +848,7 @@ async def _post_email(payload: dict) -> None:
 
 
 # ---------- Trial reminder cron ----------
-TRIAL_REMINDER_DAYS = 2
+TRIAL_REMINDER_DAYS = int(os.environ.get("TRIAL_REMINDER_DAYS", "5"))
 
 
 def _trial_reminder_html(owner_name: str, company_name: str, ends: datetime) -> str:
@@ -872,8 +874,9 @@ def _trial_ended_html(owner_name: str, company_name: str) -> str:
       <tr><td style='padding:24px'>
       <h2 style='color:#FF3B30;margin:0 0 12px'>Your Hub Trade trial has ended</h2>
       <p>Hi {escape(owner_name)},</p>
-      <p>The free trial for <b>{escape(company_name)}</b> ended today. Your jobs, crew, equipment, estimates and
-      time cards are all saved — pick a plan to reactivate your workspace in one tap.</p>
+      <p>The {TRIAL_DAYS}-day free trial for <b>{escape(company_name)}</b> ended today, so the account is now <b>archived</b>.
+      Your jobs, crew, equipment, estimates and time cards are saved for <b>{ARCHIVE_GRACE_DAYS} more days</b> —
+      pick a plan before then to reactivate everything in one tap. After that the account and its data are permanently removed.</p>
       <p style='margin:28px 0'><a href='{link}' style='background:#FF3B30;color:#fff;padding:14px 24px;border-radius:6px;text-decoration:none;font-weight:bold'>Reactivate my workspace</a></p>
       <p style='color:#555;font-size:13px'>Plans start at $60/mo, billed monthly.</p>
       <p style='color:#888;font-size:12px'>Sent by {escape(EMAIL_FROM_NAME)}. We never ask for your password or card details by email.</p>
@@ -910,20 +913,43 @@ async def run_trial_reminders() -> int:
 
 async def run_trial_ended() -> int:
     now = datetime.now(timezone.utc)
-    comps = await db.companies.find({"membership_status": {"$in": ["trial", "expired"]}, "trial_ended_email_sent": {"$ne": True},
+    comps = await db.companies.find({"membership_status": {"$in": ["trial", "archived"]}, "trial_ended_email_sent": {"$ne": True},
                                      "trial_ends_at": {"$lte": now.isoformat()}}).to_list(500)
     sent = 0
     for comp in comps:
-        await db.companies.update_one({"_id": comp["_id"]}, {"$set": {"membership_status": "expired", "plan": None,
-                                                                      "trial_ended_email_sent": True, "trial_ended_email_sent_at": now_iso()}})
+        upd = {"membership_status": "archived", "plan": None, "trial_ended_email_sent": True, "trial_ended_email_sent_at": now_iso()}
+        if not comp.get("archived_at"):
+            upd["archived_at"] = now_iso()
+        await db.companies.update_one({"_id": comp["_id"]}, {"$set": upd})
         sent += await _email_owners(comp, "Your Hub Trade free trial has ended", lambda n, c=comp: _trial_ended_html(n, c.get("name", "")))
     logger.info(f"trial ended emails sent: {sent}")
     return sent
 
 
+PURGE_COLLECTIONS = ("jobs", "employees", "vehicles", "equipment", "estimates", "timecards", "schedule",
+                     "notifications", "audit_logs", "data_entry_tickets", "files", "payment_transactions")
+
+
+async def run_purge_archived() -> int:
+    # Removes companies archived for ARCHIVE_GRACE_DAYS+ days that never paid (explicit trial policy).
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=ARCHIVE_GRACE_DAYS)).isoformat()
+    comps = await db.companies.find({"membership_status": "archived", "archived_at": {"$lte": cutoff}}).to_list(200)
+    removed = 0
+    for comp in comps:
+        cid = str(comp["_id"])
+        for coll in PURGE_COLLECTIONS:
+            await db[coll].delete_many({"company_id": cid})
+        await db.users.delete_many({"company_id": cid, "is_superadmin": {"$ne": True}})
+        await db.companies.delete_one({"_id": comp["_id"], "membership_status": "archived"})
+        removed += 1
+        logger.info(f"purged archived company {cid} ({comp.get('name','')})")
+    return removed
+
+
 async def run_trial_jobs():
     await run_trial_reminders()
     await run_trial_ended()
+    await run_purge_archived()
 
 
 @api.post("/cron/trial-reminders")
@@ -947,7 +973,7 @@ MAX_UPLOAD_BYTES = 10 * 1024 * 1024
 
 
 @api.post("/upload")
-async def upload(file: UploadFile = File(...), user: dict = Depends(get_current_user)):
+async def upload(file: UploadFile = File(...), user: dict = Depends(require_not_archived)):
     ct = (file.content_type or "").lower()
     if ct not in ALLOWED_UPLOAD_TYPES:
         raise HTTPException(400, "Only JPG, PNG, WEBP, GIF, HEIC images and PDF files are allowed")
@@ -963,7 +989,7 @@ async def upload(file: UploadFile = File(...), user: dict = Depends(get_current_
 
 
 @api.get("/files/{path:path}")
-async def download_file(path: str, user: dict = Depends(get_current_user)):
+async def download_file(path: str, user: dict = Depends(require_not_archived)):
     record = await db.files.find_one({"storage_path": path, "company_id": user["company_id"], "is_deleted": False})
     if not record:
         raise HTTPException(404, "File not found")
@@ -977,7 +1003,7 @@ async def download_file(path: str, user: dict = Depends(get_current_user)):
 
 # ---------- Time cards ----------
 @api.post("/timecards/clock-in")
-async def clock_in(req: TimeCardAction, user: dict = Depends(get_current_user)):
+async def clock_in(req: TimeCardAction, user: dict = Depends(require_not_archived)):
     existing = await db.timecards.find_one({"employee_id": req.employee_id, "company_id": user["company_id"], "clock_out": None})
     if existing:
         raise HTTPException(400, "Already clocked in")
@@ -991,7 +1017,7 @@ async def clock_in(req: TimeCardAction, user: dict = Depends(get_current_user)):
 
 
 @api.post("/timecards/clock-out")
-async def clock_out(req: TimeCardAction, user: dict = Depends(get_current_user)):
+async def clock_out(req: TimeCardAction, user: dict = Depends(require_not_archived)):
     tc = await db.timecards.find_one({"employee_id": req.employee_id, "company_id": user["company_id"], "clock_out": None})
     if not tc:
         raise HTTPException(400, "Not clocked in")
@@ -1006,7 +1032,7 @@ async def clock_out(req: TimeCardAction, user: dict = Depends(get_current_user))
 
 
 @api.get("/timecards")
-async def list_timecards(user: dict = Depends(get_current_user)):
+async def list_timecards(user: dict = Depends(require_not_archived)):
     items = await db.timecards.find({"company_id": user["company_id"]}).sort("_id", -1).to_list(1000)
     return [clean(i) for i in items]
 
@@ -1018,7 +1044,7 @@ class JobPhoto(BaseModel):
 
 
 @api.post("/jobs/{job_id}/photos")
-async def add_job_photo(job_id: str, req: JobPhoto, user: dict = Depends(get_current_user)):
+async def add_job_photo(job_id: str, req: JobPhoto, user: dict = Depends(require_not_archived)):
     job = await db.jobs.find_one({"_id": _oid(job_id), "company_id": user["company_id"]}, {"name": 1})
     if not job:
         raise HTTPException(404, "Job not found")
@@ -1030,14 +1056,14 @@ async def add_job_photo(job_id: str, req: JobPhoto, user: dict = Depends(get_cur
 
 
 @api.get("/timecards/active")
-async def active_timecards(user: dict = Depends(get_current_user)):
+async def active_timecards(user: dict = Depends(require_not_archived)):
     items = await db.timecards.find({"company_id": user["company_id"], "clock_out": None}).to_list(1000)
     return [clean(i) for i in items]
 
 
 # ---------- Messages ----------
 @api.get("/messages")
-async def list_messages(job_id: Optional[str] = None, user: dict = Depends(get_current_user)):
+async def list_messages(job_id: Optional[str] = None, user: dict = Depends(require_not_archived)):
     q = {"company_id": user["company_id"]}
     if job_id:
         q["job_id"] = job_id
@@ -1046,7 +1072,7 @@ async def list_messages(job_id: Optional[str] = None, user: dict = Depends(get_c
 
 
 @api.post("/messages")
-async def post_message(req: MessageReq, user: dict = Depends(get_current_user)):
+async def post_message(req: MessageReq, user: dict = Depends(require_not_archived)):
     doc = {"text": req.text, "job_id": req.job_id, "company_id": user["company_id"],
            "author_name": user["name"], "author_role": user["role"], "created_at": now_iso()}
     res = await db.messages.insert_one(doc)
@@ -1076,7 +1102,7 @@ async def _data_entry_summary(cid: str) -> dict:
 
 
 @api.get("/dashboard")
-async def dashboard(user: dict = Depends(get_current_user)):
+async def dashboard(user: dict = Depends(require_not_archived)):
     cid = user["company_id"]
     active_jobs = await db.jobs.find({"company_id": cid, "status": "active"}).sort("_id", -1).to_list(6)
     active_tcs = await db.timecards.find({"company_id": cid, "clock_out": None}, {"employee_id": 1}).to_list(1000)
@@ -1099,7 +1125,7 @@ async def dashboard(user: dict = Depends(get_current_user)):
 
 
 @api.get("/reports/weekly")
-async def weekly_report(user: dict = Depends(get_current_user)):
+async def weekly_report(user: dict = Depends(require_not_archived)):
     cid = user["company_id"]
     week_ago = datetime.now(timezone.utc) - timedelta(days=7)
     tcs = await db.timecards.find(
@@ -1130,7 +1156,7 @@ async def _sum_field(coll, cid: str, field: str) -> float:
 
 
 @api.get("/jobs/{job_id}/cost")
-async def job_cost(job_id: str, user: dict = Depends(get_current_user)):
+async def job_cost(job_id: str, user: dict = Depends(require_not_archived)):
     job = await db.jobs.find_one({"_id": ObjectId(job_id), "company_id": user["company_id"]})
     if not job:
         raise HTTPException(404, "Job not found")
@@ -1154,7 +1180,7 @@ class TeamMemberReq(BaseModel):
 
 
 @api.get("/team")
-async def list_team(user: dict = Depends(get_current_user)):
+async def list_team(user: dict = Depends(require_not_archived)):
     members = await db.users.find({"company_id": user["company_id"]}).to_list(1000)
     return [clean(m) for m in members]
 
@@ -1217,13 +1243,13 @@ class DataEntryTicketReq(BaseModel):
 
 
 @api.get("/data-entry-tickets")
-async def list_tickets(user: dict = Depends(get_current_user)):
+async def list_tickets(user: dict = Depends(require_not_archived)):
     items = await db.data_entry_tickets.find({"company_id": user["company_id"]}).sort("_id", -1).to_list(1000)
     return [clean(i) for i in items]
 
 
 @api.post("/data-entry-tickets")
-async def create_ticket(req: DataEntryTicketReq, user: dict = Depends(get_current_user)):
+async def create_ticket(req: DataEntryTicketReq, user: dict = Depends(require_not_archived)):
     comp = await db.companies.find_one({"_id": ObjectId(user["company_id"])})
     doc = {**req.model_dump(), "company_id": user["company_id"],
            "company_name": comp.get("name") if comp else "",
@@ -1269,13 +1295,13 @@ async def admin_update_ticket(ticket_id: str, req: AdminTicketUpdate, user: dict
 
 
 @api.get("/notifications")
-async def list_notifications(user: dict = Depends(get_current_user)):
+async def list_notifications(user: dict = Depends(require_not_archived)):
     items = await db.notifications.find({"company_id": user["company_id"]}).sort("_id", -1).limit(50).to_list(50)
     return [clean(i) for i in items]
 
 
 @api.post("/notifications/{nid}/read")
-async def read_notification(nid: str, user: dict = Depends(get_current_user)):
+async def read_notification(nid: str, user: dict = Depends(require_not_archived)):
     try:
         oid = ObjectId(nid)
     except Exception:
@@ -1285,7 +1311,7 @@ async def read_notification(nid: str, user: dict = Depends(get_current_user)):
 
 
 @api.post("/notifications/read-all")
-async def read_all_notifications(user: dict = Depends(get_current_user)):
+async def read_all_notifications(user: dict = Depends(require_not_archived)):
     await db.notifications.update_many({"company_id": user["company_id"], "read": False}, {"$set": {"read": True}})
     return {"status": "ok"}
 
