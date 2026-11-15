@@ -28,6 +28,7 @@ const NAV = [
 
 export default function Layout({ children }) {
   const { user, logout } = useAuth();
+  const lockedForMember = user?.company?.membership_status === "archived" && user?.role !== "owner" && !user?.is_superadmin;
   const nav = useNavigate();
   const [open, setOpen] = useState(false);
   const links = NAV.filter((n) => n.roles.includes(user?.role));
@@ -106,7 +107,7 @@ export default function Layout({ children }) {
             </div>
           </div>
         </header>
-        <main className="flex-1 overflow-y-auto"><TrialBanner /><OfflineBanner /><div className="p-4 lg:p-8">{children}</div></main>
+        <main className="flex-1 overflow-y-auto"><TrialBanner /><OfflineBanner />{lockedForMember ? null : <div className="p-4 lg:p-8">{children}</div>}</main>
       </div>
     </div>
   );

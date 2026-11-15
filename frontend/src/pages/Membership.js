@@ -60,7 +60,7 @@ export function MembershipPage() {
       )}
       <div className="grid md:grid-cols-3 gap-6">
         {PLANS.map((p) => {
-          const isCurrent = active && current === p.key;
+          const isCurrent = status === "active" && current === p.key;
           return (
             <div key={p.key} data-testid={`membership-plan-${p.key}`} className={`relative border rounded-md p-8 bg-card ${p.popular ? "border-primary" : "border-border"}`}>
               {p.popular && <div className="absolute -top-3 left-8 px-3 py-1 rounded-full bg-primary text-primary-foreground text-xs font-bold">Popular</div>}

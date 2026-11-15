@@ -762,7 +762,8 @@ async def _fulfil_payment(rec: dict):
             await log_audit(rec["company_id"], None, f"Deposit ${rec['amount']:,.2f} paid on estimate for {est.get('customer_name','')}")
         return
     await db.companies.update_one({"_id": ObjectId(rec["company_id"])},
-                                  {"$set": {"plan": rec["plan"], "membership_status": "active", "membership_since": now_iso()}})
+                                  {"$set": {"plan": rec["plan"], "membership_status": "active", "membership_since": now_iso()},
+                                   "$unset": {"archived_at": "", "trial_ended_email_sent": ""}})
 
 
 _SHORTENERS = ("bit.ly", "tinyurl.com", "t.co", "is.gd", "cutt.ly", "goo.gl", "rebrand.ly")
@@ -1438,7 +1439,38 @@ async def stripe_webhook(request: Request):
             {"$set": {"status": "completed", "payment_status": obj.get("payment_status", "paid"), "updated_at": now_iso()}})
         if rec:
             await _fulfil_payment(rec)
+        else:
+            await _fulfil_payment_link(obj)
     return {"status": "ok"}
+
+
+async def _fulfil_payment_link(session: dict):
+    # Static Stripe Payment Links create no local record: match the payer's email to an owner and infer the plan.
+    email = ((session.get("customer_details") or {}).get("email") or session.get("customer_email") or "").lower()
+    if not email:
+        return
+    owner = await db.users.find_one({"email": email, "role": "owner"})
+    if not owner:
+        return
+    amount = (session.get("amount_total") or 0) / 100
+    plan = next((k for k, v in PLAN_LIMITS.items() if abs(v["monthly"] - amount) < 0.01), None)
+    if not plan:
+        try:
+            items = stripe.checkout.Session.list_line_items(session["id"], limit=1).data
+            lk = (items[0].price.lookup_key or "") if items else ""
+            plan = next((k for k, v in PLAN_LIMITS.items() if v["lookup_key"] == lk), None)
+        except stripe.error.StripeError:
+            plan = None
+    if not plan:
+        logger.warning(f"payment link session {session.get('id')} for {email}: could not infer plan")
+        return
+    await db.payment_transactions.insert_one({"session_id": session["id"], "kind": "subscription", "plan": plan, "company_id": owner["company_id"],
+                                              "amount": amount, "currency": session.get("currency", "usd"), "status": "completed",
+                                              "payment_status": "paid", "source": "payment_link", "created_at": now_iso(), "updated_at": now_iso()})
+    await db.companies.update_one({"_id": ObjectId(owner["company_id"])},
+                                  {"$set": {"plan": plan, "membership_status": "active", "membership_since": now_iso()},
+                                   "$unset": {"archived_at": "", "trial_ended_email_sent": ""}})
+    await log_audit(owner["company_id"], owner, f"Membership activated via payment link: {plan}")
 
 
 app.include_router(api)

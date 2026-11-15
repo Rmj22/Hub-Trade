@@ -9,6 +9,15 @@ export default function TrialBanner() {
   if (!c || user?.is_superadmin) return null;
 
   if (c.membership_status === "archived") {
+    if (user?.role !== "owner") {
+      return (
+        <div data-testid="archived-locked" className="m-6 border border-destructive/40 bg-destructive/10 rounded-md p-8 text-center">
+          <Archive className="w-8 h-8 text-destructive mx-auto mb-3" />
+          <div className="font-head font-bold text-xl mb-1">This workspace is archived</div>
+          <p className="text-sm text-muted-foreground">Your company's free trial has ended. Ask your owner to choose a plan to reactivate it.</p>
+        </div>
+      );
+    }
     if (!loc.pathname.startsWith("/app/membership")) return <Navigate to="/app/membership" replace />;
     return (
       <div data-testid="archived-banner" className="flex items-center gap-3 px-4 py-2 text-sm border-b bg-destructive/10 border-destructive/40">
