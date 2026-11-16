@@ -39,7 +39,7 @@ export function LoginPage() {
           <h1 className="font-head font-extrabold text-3xl mb-2 tracking-tight">Log in</h1>
           <p className="text-muted-foreground text-sm mb-6">Manage your crew, jobs, and gear.</p>
           <form onSubmit={submit} className="space-y-4">
-            <input data-testid="login-email" className={inp} placeholder="Email" type="email" name="email" autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} required />
+            <input data-testid="login-email" className={inp} placeholder="Email or username" type="text" name="email" autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} required />
             <input data-testid="login-password" className={inp} placeholder="Password" type="password" name="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} required />
             <label className="flex items-center gap-2 text-sm text-muted-foreground cursor-pointer">
               <input type="checkbox" data-testid="login-remember" checked={remember} onChange={(e) => setRemember(e.target.checked)} className="accent-primary w-4 h-4" />

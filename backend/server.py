@@ -232,7 +232,7 @@ class RegisterReq(BaseModel):
 
 
 class LoginReq(BaseModel):
-    email: EmailStr
+    email: str
     password: str
 
 
@@ -293,17 +293,30 @@ async def scope(user):
 
 
 class Job(BaseModel):
-    name: str
+    name: str = ""
     address: str = ""
     customer_name: str = ""
-    status: str = "active"  # active, behind, completed
-    due_date: Optional[str] = None
+    status: str = "active"  # active (auto on_time/late), completed
+    start_date: Optional[str] = None
+    completion_date: Optional[str] = None
     description: str = ""
     assigned_employees: List[str] = []
     assigned_vehicles: List[str] = []
     assigned_equipment: List[str] = []
-    material_cost: float = 0
-    onsite_purchases: float = 0
+
+
+def job_display(doc: dict) -> dict:
+    num = doc.get("job_number")
+    doc["name"] = f"#{num} – {doc.get('customer_name') or 'Customer'}" if num else doc.get("name", "")
+    if doc.get("status") != "completed":
+        cd = doc.get("completion_date")
+        doc["status"] = "late" if cd and cd < datetime.now(timezone.utc).strftime("%Y-%m-%d") else "on_time"
+    return doc
+
+
+async def next_job_number(cid: str) -> int:
+    res = await db.counters.find_one_and_update({"_id": f"job:{cid}"}, {"$inc": {"seq": 1}}, upsert=True, return_document=True)
+    return 1000 + res["seq"]
 
 
 class Employee(BaseModel):
@@ -319,8 +332,11 @@ class Employee(BaseModel):
 class Vehicle(BaseModel):
     name: str
     plate: str = ""
-    type: str = "Truck"
+    type: str = "Truck"  # Truck, Trailer, Large Vehicle
     status: str = "available"  # available, in-use
+    ownership: str = "own"  # own, rent (Large Vehicle)
+    rental_start_date: Optional[str] = None
+    rental_status: str = "in_use"  # in_use, returned
     oil_change_date: Optional[str] = None
     tire_rotation_date: Optional[str] = None
     registration_expiry: Optional[str] = None
@@ -331,14 +347,10 @@ class Vehicle(BaseModel):
 
 class Equipment(BaseModel):
     name: str
-    category: str = "General"
+    category: str = "Power Hand Tool"  # Power Hand Tool, Shop Tool, Vehicle Tool
     trade: str = "General"
     condition: str = ""
-    location: str = ""
-    status: str = "available"  # available, assigned
-    inspection_date: Optional[str] = None
-    service_reminder: Optional[str] = None
-    hours_used: float = 0
+    status: str = "available"  # available, servicing
     repair_history: List[dict] = []
 
 
@@ -346,11 +358,28 @@ class Estimate(BaseModel):
     customer_name: str
     customer_email: str = ""
     job_id: Optional[str] = None
-    line_items: List[dict] = []  # {desc, qty, unit_price}
+    line_items: List[dict] = []  # {section, desc, qty, unit_price}
     notes: str = ""
     photos: List[str] = []
     status: str = "draft"  # draft, sent, approved
     deposit_percent: float = 25
+    job_start_date: Optional[str] = None
+    num_payments: int = 2
+
+
+def payment_schedule(total: float, start: Optional[str], n: int) -> List[dict]:
+    n = max(1, min(int(n or 1), 12))
+    try:
+        base = datetime.strptime(start, "%Y-%m-%d") if start else datetime.now(timezone.utc)
+    except ValueError:
+        base = datetime.now(timezone.utc)
+    per = round(total / n, 2)
+    out = []
+    for i in range(n):
+        amt = round(total - per * (n - 1), 2) if i == n - 1 else per
+        out.append({"label": "Deposit" if i == 0 else f"Payment {i + 1}", "amount": amt,
+                    "due_date": (base + timedelta(days=30 * i)).strftime("%Y-%m-%d")})
+    return out
 
 
 class MessageReq(BaseModel):
@@ -378,11 +407,12 @@ def _action_time(at: Optional[str]) -> datetime:
 
 def crud_router(name: str, collection: str, Model, create_roles=("owner", "foreman")):
     r = APIRouter()
+    post = job_display if collection == "jobs" else (lambda d: d)
 
     @r.get(f"/{name}")
     async def list_items(user: dict = Depends(require_not_archived)):
         items = await db[collection].find({"company_id": user["company_id"]}).sort("_id", -1).to_list(1000)
-        return [clean(i) for i in items]
+        return [post(clean(i)) for i in items]
 
     label = name[:-1] if name.endswith("s") else name
 
@@ -391,27 +421,38 @@ def crud_router(name: str, collection: str, Model, create_roles=("owner", "forem
         doc = payload.model_dump()
         doc["company_id"] = user["company_id"]
         doc["created_at"] = now_iso()
+        if collection == "jobs":
+            doc["job_number"] = await next_job_number(user["company_id"])
+            doc["name"] = f"#{doc['job_number']} – {doc.get('customer_name') or 'Customer'}"
         res = await db[collection].insert_one(doc)
         doc["_id"] = res.inserted_id
         await log_audit(user["company_id"], user, f"Created {label}: {doc.get('name', '')}".strip())
-        return clean(doc)
+        return post(clean(doc))
 
     @r.get(f"/{name}/{{item_id}}")
     async def get_item(item_id: str, user: dict = Depends(require_not_archived)):
         item = await db[collection].find_one({"_id": _oid(item_id), "company_id": user["company_id"]})
         if not item:
             raise HTTPException(404, "Not found")
-        return clean(item)
+        return post(clean(item))
 
     @r.put(f"/{name}/{{item_id}}")
     async def update_item(item_id: str, payload: Model, user: dict = Depends(require_role(*create_roles))):
         doc = payload.model_dump(exclude_unset=True)
+        if collection == "jobs":
+            doc.pop("name", None)
+            if doc.get("status") not in (None, "completed"):
+                doc["status"] = "active"
+            if "customer_name" in doc:
+                cur = await db[collection].find_one({"_id": _oid(item_id), "company_id": user["company_id"]}, {"job_number": 1})
+                if cur and cur.get("job_number"):
+                    doc["name"] = f"#{cur['job_number']} – {doc['customer_name'] or 'Customer'}"
         await db[collection].update_one({"_id": _oid(item_id), "company_id": user["company_id"]}, {"$set": doc})
         item = await db[collection].find_one({"_id": _oid(item_id), "company_id": user["company_id"]})
         if not item:
             raise HTTPException(404, "Not found")
-        await log_audit(user["company_id"], user, f"Updated {label}: {doc.get('name', '')}".strip())
-        return clean(item)
+        await log_audit(user["company_id"], user, f"Updated {label}: {item.get('name', '')}".strip())
+        return post(clean(item))
 
     @r.delete(f"/{name}/{{item_id}}")
     async def delete_item(item_id: str, user: dict = Depends(require_role("owner"))):
@@ -541,6 +582,7 @@ async def create_estimate(payload: Estimate, user: dict = Depends(require_role("
     doc = payload.model_dump()
     doc["company_id"] = user["company_id"]
     doc["total"] = sum(li.get("qty", 1) * li.get("unit_price", 0) for li in payload.line_items)
+    doc["payment_schedule"] = payment_schedule(doc["total"], payload.job_start_date, payload.num_payments)
     doc["created_at"] = now_iso()
     res = await db.estimates.insert_one(doc)
     doc["_id"] = res.inserted_id
@@ -553,6 +595,7 @@ async def update_estimate(item_id: str, payload: Estimate, user: dict = Depends(
     doc = payload.model_dump()
     doc.pop("status", None)
     doc["total"] = sum(li.get("qty", 1) * li.get("unit_price", 0) for li in payload.line_items)
+    doc["payment_schedule"] = payment_schedule(doc["total"], payload.job_start_date, payload.num_payments)
     await db.estimates.update_one({"_id": _oid(item_id), "company_id": user["company_id"]}, {"$set": doc})
     item = await db.estimates.find_one({"_id": _oid(item_id), "company_id": user["company_id"]})
     if not item:
@@ -619,7 +662,7 @@ def _public_estimate(est: dict, comp: dict) -> dict:
         "status": est.get("status", "sent"), "deposit_percent": pct, "deposit_amount": round(total * pct / 100, 2),
         "approved_at": est.get("approved_at"), "signature_name": est.get("signature_name"),
         "deposit_paid": bool(est.get("deposit_paid")), "deposit_paid_at": est.get("deposit_paid_at"),
-        "created_at": est.get("created_at"),
+        "created_at": est.get("created_at"), "payment_schedule": est.get("payment_schedule", []),
     }
 
 
@@ -1105,11 +1148,12 @@ async def _data_entry_summary(cid: str) -> dict:
 @api.get("/dashboard")
 async def dashboard(user: dict = Depends(require_not_archived)):
     cid = user["company_id"]
-    active_jobs = await db.jobs.find({"company_id": cid, "status": "active"}).sort("_id", -1).to_list(6)
+    active_jobs = [job_display(clean(j)) for j in await db.jobs.find({"company_id": cid, "status": "active"}).sort("_id", -1).to_list(6)]
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     active_tcs = await db.timecards.find({"company_id": cid, "clock_out": None}, {"employee_id": 1}).to_list(1000)
     return {
         "active_jobs": await _count("jobs", cid, status="active"),
-        "jobs_behind": await _count("jobs", cid, status="behind"),
+        "jobs_behind": await db.jobs.count_documents({"company_id": cid, "status": "active", "completion_date": {"$lt": today, "$ne": None}}),
         "completed_jobs": await _count("jobs", cid, status="completed"),
         "clocked_in": len(active_tcs),
         "clocked_in_ids": [t["employee_id"] for t in active_tcs],
@@ -1119,7 +1163,7 @@ async def dashboard(user: dict = Depends(require_not_archived)):
         "total_equipment": await _count("equipment", cid),
         "total_employees": await _count("employees", cid),
         "upcoming_estimates": await _count("estimates", cid, status="draft"),
-        "active_jobs_list": [clean(j) for j in active_jobs],
+        "active_jobs_list": active_jobs,
         "unread_notifications": await _count("notifications", cid, read=False),
         **(await _data_entry_summary(cid)),
     }
@@ -1174,10 +1218,20 @@ async def job_cost(job_id: str, user: dict = Depends(require_not_archived)):
 
 # ---------- Team members (create foreman/employee accounts) ----------
 class TeamMemberReq(BaseModel):
-    email: EmailStr
-    password: str
+    email: Optional[str] = None
+    password: Optional[str] = None
     name: str
     role: str  # foreman or employee
+
+
+def _gen_username(name: str, cid: str) -> str:
+    base = re.sub(r"[^a-z0-9]", "", name.lower()) or "user"
+    return f"{base[:12]}{secrets.randbelow(9000) + 1000}@{cid[-6:]}.hubtrade"
+
+
+def _gen_password() -> str:
+    alphabet = "abcdefghjkmnpqrstuvwxyzABCDEFGHJKMNPQRSTUVWXYZ23456789"
+    return "".join(secrets.choice(alphabet) for _ in range(10))
 
 
 @api.get("/team")
@@ -1190,15 +1244,20 @@ async def list_team(user: dict = Depends(require_not_archived)):
 async def add_team(req: TeamMemberReq, user: dict = Depends(require_role("owner"))):
     if req.role not in ("owner", "foreman", "employee"):
         raise HTTPException(400, "Invalid role")
-    email = req.email.lower()
-    if await db.users.find_one({"email": email}):
-        raise HTTPException(400, "Email already registered")
-    doc = {"email": email, "password_hash": hash_password(req.password), "name": req.name,
+    email = (req.email or "").strip().lower() or _gen_username(req.name, user["company_id"])
+    while await db.users.find_one({"email": email}):
+        if req.email:
+            raise HTTPException(400, "Email already registered")
+        email = _gen_username(req.name, user["company_id"])
+    password = req.password or _gen_password()
+    doc = {"email": email, "password_hash": hash_password(password), "name": req.name,
            "role": req.role, "company_id": user["company_id"], "created_at": now_iso()}
     res = await db.users.insert_one(doc)
     doc["_id"] = res.inserted_id
     await log_audit(user["company_id"], user, f"Added team member {req.name} ({req.role})")
-    return clean(doc)
+    out = clean(doc)
+    out["credentials"] = {"username": email, "password": password}
+    return out
 
 
 class RoleUpdateReq(BaseModel):

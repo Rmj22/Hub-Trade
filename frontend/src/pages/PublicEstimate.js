@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, Fragment } from "react";
 import { useParams, useSearchParams } from "react-router-dom";
 import { api, API, errMsg } from "../lib/api";
 import { toast, Toaster } from "sonner";
@@ -9,23 +9,43 @@ const POLL_MS = 2000;
 const MAX_POLLS = 10;
 
 function LineItems({ items, total }) {
+  const sections = [["materials", "Materials"], ["labor", "Labor"], ["services", "Services"]];
+  const grouped = sections.map(([k, l]) => [l, items.filter((li) => (li.section || "materials") === k)]).filter(([, rows]) => rows.length);
   return (
     <table className="w-full text-sm" data-testid="public-line-items">
       <thead><tr className="text-left text-xs uppercase tracking-wider text-muted-foreground border-b border-border">
-        <th className="py-2">Item</th><th className="py-2 text-center">Qty</th><th className="py-2 text-right">Unit</th><th className="py-2 text-right">Total</th>
+        <th className="py-2">Item</th><th className="py-2 text-right">Price</th>
       </tr></thead>
       <tbody>
-        {items.map((li, i) => (
-          <tr key={i} className="border-b border-border last:border-0">
-            <td className="py-2.5 pr-3">{li.desc}</td>
-            <td className="py-2.5 text-center">{li.qty}</td>
-            <td className="py-2.5 text-right">{money(li.unit_price)}</td>
-            <td className="py-2.5 text-right">{money((li.qty || 0) * (li.unit_price || 0))}</td>
-          </tr>
+        {grouped.map(([label, rows]) => (
+          <Fragment key={label}>
+            <tr><td colSpan={2} className="pt-4 pb-1 text-xs uppercase tracking-wider text-primary font-semibold">{label}</td></tr>
+            {rows.map((li, i) => (
+              <tr key={`${label}-${i}`} className="border-b border-border last:border-0">
+                <td className="py-2.5 pr-3 break-words">{li.desc}</td>
+                <td className="py-2.5 text-right whitespace-nowrap">{money((li.qty || 1) * (li.unit_price || 0))}</td>
+              </tr>
+            ))}
+          </Fragment>
         ))}
       </tbody>
-      <tfoot><tr><td colSpan={3} className="pt-4 text-right font-semibold">Total</td><td className="pt-4 text-right font-head font-extrabold text-xl" data-testid="public-total">{money(total)}</td></tr></tfoot>
+      <tfoot><tr><td className="pt-4 text-right font-semibold">Total</td><td className="pt-4 text-right font-head font-extrabold text-xl" data-testid="public-total">{money(total)}</td></tr></tfoot>
     </table>
+  );
+}
+
+function Schedule({ rows }) {
+  if (!rows?.length) return null;
+  return (
+    <div className="border border-border rounded-md bg-card p-6" data-testid="public-schedule">
+      <h2 className="font-head font-bold text-lg mb-3">Payment schedule</h2>
+      {rows.map((r, i) => (
+        <div key={r.label} className={`flex items-center justify-between py-2 text-sm ${i > 0 ? "border-t border-border" : ""}`}>
+          <div><div className="font-medium">{r.label}</div><div className="text-xs text-muted-foreground">Due {r.due_date}</div></div>
+          <div className="font-head font-bold">{money(r.amount)}</div>
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -134,6 +154,7 @@ export default function PublicEstimatePage() {
               </a>
             </div>
             <div className="border border-border rounded-md bg-card p-6"><LineItems items={est.line_items} total={est.total} /></div>
+            <Schedule rows={est.payment_schedule} />
             {est.notes && <div className="border border-border rounded-md bg-card p-6 text-sm whitespace-pre-wrap" data-testid="public-notes">{est.notes}</div>}
             {est.status === "approved" ? (
               <div className="border border-green-500/40 bg-green-500/10 rounded-md p-6 flex items-center gap-3" data-testid="approved-badge">

@@ -5,9 +5,9 @@ import { Plus } from "lucide-react";
 import { EstimateCard, EstimateModal } from "../components/estimates/EstimateParts";
 
 let lineSeq = 0;
-const newLine = () => ({ _key: `li-${++lineSeq}`, desc: "", qty: 1, unit_price: 0 });
-const withKeys = (li) => (li?.length ? li.map((l) => ({ ...l, _key: l._key || `li-${++lineSeq}` })) : [newLine()]);
-const empty = { customer_name: "", customer_email: "", line_items: [], notes: "", photos: [], status: "draft", deposit_percent: 25 };
+const newLine = (section = "materials") => ({ _key: `li-${++lineSeq}`, section, desc: "", qty: 1, unit_price: 0 });
+const withKeys = (li) => (li || []).map((l) => ({ ...l, section: l.section || "materials", _key: l._key || `li-${++lineSeq}` }));
+const empty = { customer_name: "", customer_email: "", line_items: [], notes: "", photos: [], status: "draft", deposit_percent: 25, job_start_date: "", num_payments: 2 };
 
 export default function EstimatesPage() {
   const [items, setItems] = useState([]);
@@ -19,12 +19,18 @@ export default function EstimatesPage() {
   const load = useCallback(() => api.get("/estimates").then((r) => setItems(r.data)).catch((e) => toast.error(errMsg(e))), []);
   useEffect(() => { load(); }, [load]);
 
-  const openNew = () => { setEditId(null); setModal({ ...empty, line_items: [newLine()], photos: [] }); };
-  const openEdit = (e) => { setEditId(e.id); setModal({ ...empty, ...e, line_items: withKeys(e.line_items), photos: e.photos || [] }); };
+  const openNew = () => { setEditId(null); setModal({ ...empty, line_items: [newLine("materials"), newLine("labor"), newLine("services")], photos: [] }); };
+  const openEdit = (e) => { setEditId(e.id); setModal({ ...empty, ...e, job_start_date: e.job_start_date || "", num_payments: e.num_payments || 2, line_items: withKeys(e.line_items), photos: e.photos || [] }); };
 
   const save = async () => {
     try {
-      const payload = { ...modal, deposit_percent: Number(modal.deposit_percent) || 0, line_items: modal.line_items.map((l) => ({ desc: l.desc, qty: Number(l.qty), unit_price: Number(l.unit_price) })) };
+      const payload = {
+        ...modal,
+        deposit_percent: Number(modal.deposit_percent) || 0,
+        num_payments: Math.max(1, Number(modal.num_payments) || 1),
+        job_start_date: modal.job_start_date || null,
+        line_items: modal.line_items.filter((l) => l.desc.trim()).map((l) => ({ section: l.section, desc: l.desc, qty: 1, unit_price: Number(l.unit_price) || 0 })),
+      };
       if (editId) await api.put(`/estimates/${editId}`, payload);
       else await api.post("/estimates", payload);
       toast.success("Estimate saved"); setModal(null); load();
@@ -61,7 +67,7 @@ export default function EstimatesPage() {
           <h1 className="font-head font-extrabold text-3xl sm:text-4xl tracking-tight">Estimates</h1>
         </div>
         <button data-testid="estimates-add-btn" onClick={openNew}
-          className="inline-flex items-center gap-2 px-5 py-2.5 rounded-md bg-primary text-primary-foreground font-semibold text-sm hover:opacity-90 transition-opacity">
+          className="inline-flex items-center gap-2 px-5 py-3 sm:py-2.5 rounded-md bg-primary text-primary-foreground font-semibold text-sm hover:opacity-90 transition-opacity">
           <Plus className="w-4 h-4" /> New estimate
         </button>
       </div>

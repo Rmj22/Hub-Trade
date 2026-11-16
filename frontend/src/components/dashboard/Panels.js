@@ -1,5 +1,6 @@
 import { Link } from "react-router-dom";
 import { LifeBuoy } from "lucide-react";
+import { jobStatusBadge } from "../../pages/Resources";
 
 const TICKET_STATUS_CLS = { done: "bg-green-500/15 text-green-500", in_progress: "bg-amber-500/15 text-amber-500" };
 const ticketStatusCls = (s) => TICKET_STATUS_CLS[s] || "bg-primary/20 text-primary";
@@ -55,9 +56,9 @@ export function ActiveJobsPanel({ jobs }) {
             <div key={j.id} className="flex items-center justify-between p-3 rounded-md border border-border hover:bg-muted/30 transition-colors">
               <div>
                 <div className="font-semibold text-sm">{j.name}</div>
-                <div className="text-xs text-muted-foreground">{j.customer_name || "—"} {j.due_date ? `· due ${j.due_date}` : ""}</div>
+                <div className="text-xs text-muted-foreground">{j.address || "—"} {j.completion_date ? `· due ${j.completion_date}` : ""}</div>
               </div>
-              <span className="text-xs px-2 py-0.5 rounded-full bg-green-500/15 text-green-500 font-medium">active</span>
+              {jobStatusBadge(j.status)}
             </div>
           ))}
         </div>

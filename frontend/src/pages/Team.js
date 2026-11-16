@@ -2,16 +2,56 @@ import { useEffect, useState } from "react";
 import { api, errMsg } from "../lib/api";
 import { cachedGet } from "../lib/offline";
 import { toast } from "sonner";
-import { Plus, X, UserPlus, Trash2 } from "lucide-react";
+import { UserPlus, Trash2, Copy, KeyRound } from "lucide-react";
 import CrudManager from "../components/CrudManager";
+import { ModalShell } from "../components/crud/CrudParts";
 import { useAuth } from "../context/AuthContext";
 
 const roleBadge = { owner: "bg-primary/20 text-primary", foreman: "bg-blue-500/15 text-blue-500", employee: "bg-muted text-muted-foreground" };
+const inp = "w-full px-3 py-3 sm:py-2 rounded-md border border-input bg-background text-base sm:text-sm focus:ring-2 focus:ring-primary focus:outline-none";
+
+function CredentialsModal({ creds, onClose }) {
+  const text = `Hub Trade login\nUsername: ${creds.username}\nPassword: ${creds.password}\nLog in at ${window.location.origin}/login`;
+  const copy = async () => { try { await navigator.clipboard.writeText(text); toast.success("Copied"); } catch { toast.error("Copy failed"); } };
+  const share = async () => { if (navigator.share) { try { await navigator.share({ title: "Hub Trade login", text }); } catch { /* cancelled */ } } else copy(); };
+  return (
+    <ModalShell title="Login created" onClose={onClose} testid="credentials-modal">
+      <p className="text-sm text-muted-foreground mb-4">Share these with <span className="font-semibold text-foreground">{creds.name}</span>. The password is only shown once — employees log in free; only the owner account pays.</p>
+      <div className="border border-border rounded-md bg-background p-4 space-y-3 mb-5">
+        <div><div className="text-[10px] uppercase tracking-wider text-muted-foreground">Username</div><div className="font-mono text-sm break-all" data-testid="cred-username">{creds.username}</div></div>
+        <div><div className="text-[10px] uppercase tracking-wider text-muted-foreground">Password</div><div className="font-mono text-lg font-bold" data-testid="cred-password">{creds.password}</div></div>
+      </div>
+      <div className="flex gap-3">
+        <button onClick={copy} data-testid="cred-copy-btn" className="flex-1 py-3 rounded-md border border-border font-semibold inline-flex items-center justify-center gap-2 hover:bg-muted"><Copy className="w-4 h-4" /> Copy</button>
+        <button onClick={share} data-testid="cred-share-btn" className="flex-1 py-3 rounded-md bg-primary text-primary-foreground font-semibold">Share</button>
+      </div>
+    </ModalShell>
+  );
+}
+
+function MemberRow({ m, me, onRole, onRemove }) {
+  return (
+    <div className="flex items-center gap-3 px-4 py-3 border-b border-border last:border-0" data-testid="team-row">
+      <div className="flex-1 min-w-0">
+        <div className="font-medium truncate">{m.name} {m.is_superadmin && <span className="ml-1 text-xs text-primary">★</span>}</div>
+        <div className="text-xs text-muted-foreground truncate">{m.email}</div>
+      </div>
+      <select data-testid="member-role-select" value={m.role} onChange={(e) => onRole(m.id, e.target.value)}
+        className={`px-2 py-2 rounded-md border border-input bg-background text-xs font-medium focus:ring-2 focus:ring-primary focus:outline-none ${roleBadge[m.role]}`}>
+        <option value="owner">Owner</option><option value="foreman">Foreman</option><option value="employee">Employee</option>
+      </select>
+      {m.id !== me ? (
+        <button onClick={() => onRemove(m.id)} data-testid="member-remove-btn" className="p-2.5 rounded hover:bg-muted text-destructive min-w-[44px] min-h-[44px] inline-flex items-center justify-center"><Trash2 className="w-4 h-4" /></button>
+      ) : <span className="w-[44px]" />}
+    </div>
+  );
+}
 
 export default function TeamPage() {
   const { user } = useAuth();
   const [members, setMembers] = useState([]);
   const [modal, setModal] = useState(null);
+  const [creds, setCreds] = useState(null);
 
   const load = () => cachedGet("/team").then((r) => setMembers(r.data)).catch((e) => toast.error(errMsg(e)));
   useEffect(() => { load(); }, []);
@@ -20,18 +60,18 @@ export default function TeamPage() {
     try { await api.put(`/team/${id}/role`, { role }); toast.success("Role updated"); load(); }
     catch (e) { toast.error(errMsg(e)); }
   };
-
   const removeMember = async (id) => {
     if (!window.confirm("Remove this member's account?")) return;
     try { await api.delete(`/team/${id}`); toast.success("Member removed"); load(); }
     catch (e) { toast.error(errMsg(e)); }
   };
-
   const save = async () => {
-    try { await api.post("/team", modal); toast.success("Member added"); setModal(null); load(); }
-    catch (e) { toast.error(errMsg(e)); }
+    if (!modal.name.trim()) return toast.error("Name is required");
+    try {
+      const { data } = await api.post("/team", { name: modal.name, role: modal.role, email: modal.email || null });
+      setModal(null); setCreds({ ...data.credentials, name: data.name }); load();
+    } catch (e) { toast.error(errMsg(e)); }
   };
-  const inp = "w-full px-3 py-2 rounded-md border border-input bg-background text-sm focus:ring-2 focus:ring-primary focus:outline-none";
 
   return (
     <div data-testid="team-page">
@@ -39,65 +79,35 @@ export default function TeamPage() {
         <div>
           <div className="text-xs uppercase tracking-[0.2em] text-muted-foreground mb-1">People</div>
           <h1 className="font-head font-extrabold text-3xl sm:text-4xl tracking-tight">Team accounts</h1>
-          <p className="text-muted-foreground text-sm mt-1">Create login accounts for Foremen and Employees.</p>
+          <p className="text-muted-foreground text-sm mt-1">Add a person and we create their login for you. Employee logins are free.</p>
         </div>
-        <button data-testid="add-member-btn" onClick={() => setModal({ name: "", email: "", password: "", role: "employee" })}
-          className="inline-flex items-center gap-2 px-5 py-2.5 rounded-md bg-primary text-primary-foreground font-semibold text-sm hover:opacity-90 transition-opacity">
+        <button data-testid="add-member-btn" onClick={() => setModal({ name: "", email: "", role: "employee" })}
+          className="inline-flex items-center gap-2 px-5 py-3 sm:py-2.5 rounded-md bg-primary text-primary-foreground font-semibold text-sm hover:opacity-90 transition-opacity">
           <UserPlus className="w-4 h-4" /> Add member
         </button>
       </div>
 
-      <div className="border border-border rounded-md bg-card overflow-hidden mb-10 overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead><tr className="border-b border-border bg-muted/50"><th className="text-left px-4 py-3 font-semibold">Name</th><th className="text-left px-4 py-3 font-semibold">Email</th><th className="text-left px-4 py-3 font-semibold">Assign role</th><th className="px-4 py-3 text-right font-semibold">Actions</th></tr></thead>
-          <tbody>
-            {members.map((m) => (
-              <tr key={m.id} className="border-b border-border last:border-0" data-testid="team-row">
-                <td className="px-4 py-3 font-medium whitespace-nowrap">{m.name} {m.is_superadmin && <span className="ml-1 text-xs text-primary">★</span>}</td>
-                <td className="px-4 py-3 text-muted-foreground">{m.email}</td>
-                <td className="px-4 py-3">
-                  <select
-                    data-testid="member-role-select"
-                    value={m.role}
-                    onChange={(e) => changeRole(m.id, e.target.value)}
-                    className={`px-3 py-1.5 rounded-md border border-input bg-background text-xs font-medium focus:ring-2 focus:ring-primary focus:outline-none ${roleBadge[m.role]}`}
-                  >
-                    <option value="owner">Owner</option>
-                    <option value="foreman">Foreman</option>
-                    <option value="employee">Employee</option>
-                  </select>
-                </td>
-                <td className="px-4 py-3 text-right whitespace-nowrap">
-                  {m.id !== user?.id && (
-                    <button onClick={() => removeMember(m.id)} data-testid="member-remove-btn" className="p-1.5 rounded hover:bg-muted text-destructive transition-colors"><Trash2 className="w-4 h-4" /></button>
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+      <div className="border border-border rounded-md bg-card overflow-hidden mb-10">
+        {members.map((m) => <MemberRow key={m.id} m={m} me={user?.id} onRole={changeRole} onRemove={removeMember} />)}
       </div>
 
       <h2 className="font-head font-bold text-2xl mb-4 tracking-tight">Employee records</h2>
       <EmployeeRecords />
 
       {modal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-black/60" onClick={() => setModal(null)} />
-          <div className="relative bg-card border border-border rounded-md w-full max-w-md p-6" data-testid="member-modal">
-            <div className="flex items-center justify-between mb-6"><h2 className="font-head font-bold text-xl">Add member</h2><button onClick={() => setModal(null)}><X className="w-5 h-5" /></button></div>
-            <div className="space-y-4">
-              <input data-testid="member-name" className={inp} placeholder="Name" value={modal.name} onChange={(e) => setModal({ ...modal, name: e.target.value })} />
-              <input data-testid="member-email" className={inp} placeholder="Email" value={modal.email} onChange={(e) => setModal({ ...modal, email: e.target.value })} />
-              <input data-testid="member-password" className={inp} placeholder="Temp password" value={modal.password} onChange={(e) => setModal({ ...modal, password: e.target.value })} />
-              <select data-testid="member-role" className={inp} value={modal.role} onChange={(e) => setModal({ ...modal, role: e.target.value })}>
-                <option value="employee">Employee</option><option value="foreman">Foreman</option><option value="owner">Owner</option>
-              </select>
-            </div>
-            <button data-testid="member-save-btn" onClick={save} className="w-full mt-6 py-2.5 rounded-md bg-primary text-primary-foreground font-semibold">Create account</button>
+        <ModalShell title="Add member" onClose={() => setModal(null)} testid="member-modal">
+          <div className="space-y-4">
+            <input data-testid="member-name" className={inp} placeholder="Full name" value={modal.name} onChange={(e) => setModal({ ...modal, name: e.target.value })} />
+            <select data-testid="member-role" className={inp} value={modal.role} onChange={(e) => setModal({ ...modal, role: e.target.value })}>
+              <option value="employee">Employee</option><option value="foreman">Foreman</option><option value="owner">Owner</option>
+            </select>
+            <input data-testid="member-email" type="email" className={inp} placeholder="Email (optional — used as username if given)" value={modal.email} onChange={(e) => setModal({ ...modal, email: e.target.value })} />
+            <p className="text-xs text-muted-foreground inline-flex items-start gap-2"><KeyRound className="w-4 h-4 shrink-0 text-primary" /> A username and password are generated automatically and shown to you once to share.</p>
           </div>
-        </div>
+          <button data-testid="member-save-btn" onClick={save} className="w-full mt-6 py-3 rounded-md bg-primary text-primary-foreground font-semibold">Create login</button>
+        </ModalShell>
       )}
+      {creds && <CredentialsModal creds={creds} onClose={() => setCreds(null)} />}
     </div>
   );
 }

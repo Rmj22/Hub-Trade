@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { api, errMsg } from "../lib/api";
-import { Clock, DollarSign, Truck, Wrench, CheckCircle, Package } from "lucide-react";
+import { Clock, DollarSign, Truck, Wrench, CheckCircle } from "lucide-react";
 
 const Card = ({ icon: Icon, label, value, testid }) => (
   <div className="border border-border rounded-md bg-card p-6" data-testid={testid}>
@@ -26,7 +26,6 @@ export default function ReportsPage() {
           <Card testid="report-labor-cost" icon={DollarSign} label="Labor cost" value={`$${r.labor_cost.toLocaleString()}`} />
           <Card testid="report-equipment-hours" icon={Wrench} label="Equipment hours" value={`${r.equipment_hours}h`} />
           <Card testid="report-vehicle-hours" icon={Truck} label="Vehicle usage" value={`${r.vehicle_hours}h`} />
-          <Card testid="report-material-cost" icon={Package} label="Material + on-site" value={`$${r.material_cost.toLocaleString()}`} />
           <Card testid="report-completed-jobs" icon={CheckCircle} label="Completed jobs" value={r.completed_jobs} />
         </div>
       )}

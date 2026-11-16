@@ -1,70 +1,72 @@
 import CrudManager from "../components/CrudManager";
 
-const badge = (v, map) => {
-  const cls = map[v] || "bg-muted text-muted-foreground";
-  return <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${cls}`}>{v}</span>;
-};
+const badge = (label, cls) => <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium ${cls}`}><span className="w-2 h-2 rounded-full bg-current" />{label}</span>;
 
-const GREEN = "bg-green-500/15 text-green-500";
+export const GREEN = "bg-green-500/15 text-green-500";
+export const RED = "bg-red-500/15 text-red-500";
+export const BLACK = "bg-black text-white dark:bg-white dark:text-black";
 const PRIMARY = "bg-primary/20 text-primary";
 
+export const JOB_STATUS = {
+  on_time: { label: "On time", cls: GREEN },
+  late: { label: "Past due", cls: RED },
+  completed: { label: "Completed", cls: BLACK },
+};
+export const jobStatusBadge = (s) => { const m = JOB_STATUS[s] || JOB_STATUS.on_time; return badge(m.label, m.cls); };
+
 export const JOB_COLUMNS = [
-  { key: "name", label: "Job" },
-  { key: "customer_name", label: "Customer" },
-  { key: "status", label: "Status", render: (it) => badge(it.status, { active: GREEN, behind: "bg-destructive/15 text-destructive", completed: "bg-blue-500/15 text-blue-500" }) },
-  { key: "due_date", label: "Due" },
-  { key: "material_cost", label: "Materials", render: (it) => `$${(it.material_cost || 0).toLocaleString()}` },
+  { key: "name", label: "Job", render: (it) => <span data-testid="job-name">{it.name}</span> },
+  { key: "status", label: "Status", render: (it) => jobStatusBadge(it.status) },
+  { key: "start_date", label: "Start" },
+  { key: "completion_date", label: "Completion" },
+  { key: "address", label: "Address" },
 ];
 export const JOB_FIELDS = [
-  { key: "name", label: "Job Name", type: "text" },
   { key: "customer_name", label: "Customer Name", type: "text" },
   { key: "address", label: "Address", type: "text" },
-  { key: "status", label: "Status", type: "select", options: ["active", "behind", "completed"], default: "active" },
-  { key: "due_date", label: "Due Date", type: "date" },
-  { key: "material_cost", label: "Material Cost ($)", type: "number" },
-  { key: "onsite_purchases", label: "On-site Purchases ($)", type: "number" },
+  { key: "start_date", label: "Start Date", type: "date" },
+  { key: "completion_date", label: "Completion Date", type: "date" },
+  { key: "status", label: "Status", type: "select", options: [{ value: "active", label: "In progress (auto On time / Past due)" }, { value: "completed", label: "Completed" }], default: "active" },
   { key: "description", label: "Description", type: "textarea" },
 ];
 
 const VEHICLE_COLUMNS = [
   { key: "name", label: "Vehicle" },
+  { key: "type", label: "Type" },
   { key: "plate", label: "Plate" },
-  { key: "status", label: "Status", render: (it) => badge(it.status, { available: GREEN, "in-use": PRIMARY }) },
+  { key: "status", label: "Status", render: (it) => badge(it.status === "in-use" ? "In use" : "Available", it.status === "in-use" ? PRIMARY : GREEN) },
+  { key: "ownership", label: "Rental", render: (it) => it.type !== "Large Vehicle" ? "—" : it.ownership === "rent" ? badge(it.rental_status === "returned" ? "Returned" : "Still in use", it.rental_status === "returned" ? RED : GREEN) : "Owned" },
+  { key: "rental_start_date", label: "Rental start", render: (it) => it.ownership === "rent" && it.type === "Large Vehicle" ? it.rental_start_date || "—" : "—" },
   { key: "insurance_expiry", label: "Insurance Exp" },
   { key: "registration_expiry", label: "Reg Exp" },
-  { key: "hours_used", label: "Hours" },
 ];
+const isLarge = (f) => f.type === "Large Vehicle";
+const isRent = (f) => isLarge(f) && f.ownership === "rent";
 const VEHICLE_FIELDS = [
+  { key: "type", label: "Vehicle Type", type: "select", options: ["Truck", "Trailer", "Large Vehicle"], default: "Truck" },
+  { key: "ownership", label: "Ownership", type: "select", options: [{ value: "own", label: "Own" }, { value: "rent", label: "Rent" }], default: "own", showIf: isLarge },
+  { key: "rental_start_date", label: "Rental Start Date", type: "date", showIf: isRent },
+  { key: "rental_status", label: "Rental Status", type: "select", options: [{ value: "in_use", label: "Green — Still in use" }, { value: "returned", label: "Red — Returned" }], default: "in_use", showIf: isRent },
   { key: "name", label: "Name / Model", type: "text" },
   { key: "plate", label: "License Plate", type: "text" },
-  { key: "type", label: "Type", type: "select", options: ["Truck", "Van", "Pickup", "Trailer", "Other"], default: "Truck" },
-  { key: "status", label: "Status", type: "select", options: ["available", "in-use"], default: "available" },
+  { key: "status", label: "Status", type: "select", options: [{ value: "available", label: "Available" }, { value: "in-use", label: "In use" }], default: "available" },
   { key: "oil_change_date", label: "Last Oil Change", type: "date" },
   { key: "tire_rotation_date", label: "Last Tire Rotation", type: "date" },
   { key: "registration_expiry", label: "Registration Expiry", type: "date" },
   { key: "insurance_expiry", label: "Insurance Expiry", type: "date" },
-  { key: "inspection_date", label: "Inspection Reminder", type: "date" },
-  { key: "hours_used", label: "Hours Used", type: "number" },
 ];
 
 const EQUIPMENT_COLUMNS = [
   { key: "name", label: "Tool" },
   { key: "category", label: "Category" },
   { key: "condition", label: "Condition" },
-  { key: "location", label: "Location" },
-  { key: "status", label: "Status", render: (it) => badge(it.status, { available: GREEN, assigned: PRIMARY }) },
-  { key: "inspection_date", label: "Inspection" },
-  { key: "hours_used", label: "Hours" },
+  { key: "status", label: "Status", render: (it) => badge(it.status === "servicing" ? "Being serviced" : "Available", it.status === "servicing" ? RED : GREEN) },
 ];
 const EQUIPMENT_FIELDS = [
   { key: "name", label: "Tool", type: "text" },
-  { key: "category", label: "Category", type: "text" },
+  { key: "category", label: "Category", type: "select", options: ["Power Hand Tool", "Shop Tool", "Vehicle Tool"], default: "Power Hand Tool" },
   { key: "condition", label: "Condition", type: "text" },
-  { key: "location", label: "Location", type: "text" },
-  { key: "status", label: "Status", type: "select", options: ["available", "assigned"], default: "available" },
-  { key: "inspection_date", label: "Last Inspection", type: "date" },
-  { key: "service_reminder", label: "Service Reminder", type: "date" },
-  { key: "hours_used", label: "Hours of Use", type: "number" },
+  { key: "status", label: "Status", type: "select", options: [{ value: "available", label: "Green — Available" }, { value: "servicing", label: "Red — Being serviced" }], default: "available" },
 ];
 
 export function VehiclesPage() {
