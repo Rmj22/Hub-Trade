@@ -1,0 +1,18 @@
+{
+  "summary": "Retested the 3 iteration_18 fixes. All verified: (1) calendar-month payment schedule matches on backend and frontend (2026-01-31 -> 02-28 -> 03-31), including the frontend in UTC and America/Los_Angeles browser timezones (plus a Node check of buildSchedule in 5 timezones), with year rollover and leap-year cases checked on the backend; (2) POST /api/jobs turns status behind/on_time/late/foo into active, so the late job is returned as 'late' and dashboard jobs_behind goes up by 1; completed is kept and not counted; (3) after send, the public estimate deposit_amount equals payment_schedule[0] (333.33 against 25%=250), approve returns the same amount, the Stripe deposit checkout transaction amount is 333.33, and the owner and public PDFs return 200 application/pdf.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": ["/app/backend/tests/test_iter19_fixes.py", "/app/test_reports/pytest/pytest_iter19.xml"],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "estimate_pdf.py line 71 repeats the deposit fallback logic inline instead of calling deposit_amount(); the results match today but could drift. Consider passing deposit_amount(est) in.",
+    "_public_estimate still returns deposit_percent, which no longer matches the deposit actually charged. Make sure the UI does not show 'X% deposit' next to the schedule amount.",
+    "Job start date in the estimate modal is a native <input type=date>, not the shadcn calendar (low priority)."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter19_fixes.py"],
+  "success_rate": {"backend": "100% (9/9)", "frontend": "100%"},
+  "seed_data_creation": "TEST_ jobs and estimates were created by the pytest run and deleted by id in teardown. One Stripe test checkout session was initiated; its payment_transactions record remains with status initiated. The UI modal was not saved.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Login testids: login-email / login-password / login-submit-btn. App routes are under /app/* (e.g. /app/estimates). The pytest.ini uses xdist; run with -n0 for module-scoped cleanup. Set REACT_APP_BACKEND_URL and TEST_OWNER_PASSWORD env vars."
+}
