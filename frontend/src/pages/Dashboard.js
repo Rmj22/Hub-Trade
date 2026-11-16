@@ -5,6 +5,8 @@ import { motion } from "framer-motion";
 import { Briefcase, Clock, Truck, Wrench, AlertTriangle, FileText, Users, CheckCircle } from "lucide-react";
 import { toast } from "sonner";
 import { HoursMeter, TicketUpdates, ActiveJobsPanel, CrewStatus } from "../components/dashboard/Panels";
+import DashboardTour from "../components/DashboardTour";
+import { Compass } from "lucide-react";
 
 const GREETINGS = { owner: "Owner overview", foreman: "Foreman overview" };
 
@@ -34,6 +36,7 @@ export default function Dashboard() {
   const { user } = useAuth();
   const [d, setD] = useState(null);
   const [employees, setEmployees] = useState([]);
+  const [tour, setTour] = useState(0);
   const isManager = user?.role !== "employee";
 
   useEffect(() => {
@@ -45,9 +48,18 @@ export default function Dashboard() {
 
   return (
     <div data-testid="dashboard-page">
-      <div className="mb-8">
-        <div className="text-xs uppercase tracking-[0.2em] text-muted-foreground mb-1">{GREETINGS[user?.role] || "My day"}</div>
-        <h1 className="font-head font-extrabold text-3xl sm:text-4xl tracking-tight">Hey {user?.name?.split(" ")[0]} 👋</h1>
+      {d && user?.role === "owner" && <DashboardTour key={tour} user={user} forceOpen={tour > 0} onClose={() => setTour(0)} />}
+      <div className="mb-8 flex items-start justify-between gap-4">
+        <div>
+          <div className="text-xs uppercase tracking-[0.2em] text-muted-foreground mb-1">{GREETINGS[user?.role] || "My day"}</div>
+          <h1 className="font-head font-extrabold text-3xl sm:text-4xl tracking-tight">Hey {user?.name?.split(" ")[0]} 👋</h1>
+        </div>
+        {user?.role === "owner" && (
+          <button onClick={() => setTour((n) => n + 1)} data-testid="dashboard-tour-btn"
+            className="inline-flex items-center gap-2 px-3 py-2 rounded-md border border-border text-sm font-medium hover:bg-muted transition-colors shrink-0">
+            <Compass className="w-4 h-4" /> Take the tour
+          </button>
+        )}
       </div>
 
       {!d && <div className="text-muted-foreground">Loading…</div>}

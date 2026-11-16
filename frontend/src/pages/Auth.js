@@ -4,6 +4,7 @@ import { useAuth } from "../context/AuthContext";
 import { HardHat } from "lucide-react";
 import { toast } from "sonner";
 import { saveLogin, loadLogin, clearLogin } from "../lib/savedLogin";
+import { DASH_TOUR_FLAG } from "../components/DashboardTour";
 
 export function LoginPage() {
   const { login } = useAuth();
@@ -67,7 +68,11 @@ export function RegisterPage() {
   const submit = async (e) => {
     e.preventDefault();
     setLoading(true);
-    try { await register(form); saveLogin(form.email, form.password); toast.success("Company created!"); nav("/app/membership"); }
+    try {
+      await register(form); saveLogin(form.email, form.password);
+      try { localStorage.setItem(DASH_TOUR_FLAG, "1"); } catch { /* ignore */ }
+      toast.success("Company created!"); nav("/app");
+    }
     catch (err) { toast.error(err.message); }
     setLoading(false);
   };

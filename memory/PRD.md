@@ -73,3 +73,4 @@
 - Production Secrets: TRIAL_DAYS=15 (TRIAL_CODE no longer used).
 - Fixes after iteration_16: payment-link webhook reactivation (_fulfil_payment_link, infers plan from amount/lookup_key), archived non-owner lock panel (no loop), trial users can buy any plan. iteration_17 all pass.
 - 2026-06: First-visit WelcomeTutorial (7 steps, localStorage ht_tutorial_seen, Replay in footer); saved login (lib/savedLogin.js: email+password in localStorage + Credential API, Remember-me, autoComplete attrs, saved on register); /user-guide page (pages/UserGuide.js) linked from landing header/footer, register page, app sidebar. Self-tested via screenshot.
+- 2026-06: DashboardTour (components/DashboardTour.js): 8-step spotlight tour on dashboard, auto-shown once for new owners (register sets localStorage ht_show_dash_tour; done key per user id); "Take the tour" replay button on dashboard. Register now lands on /app. Self-tested desktop+mobile.
