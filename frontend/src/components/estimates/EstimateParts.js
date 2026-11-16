@@ -19,10 +19,12 @@ export function buildSchedule(total, start, n) {
   n = Math.max(1, Math.min(Number(n) || 1, 12));
   const base = start ? new Date(`${start}T00:00:00`) : new Date();
   const per = Math.round((total / n) * 100) / 100;
+  const fmt = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
   return Array.from({ length: n }, (_, i) => {
-    const d = new Date(base); d.setMonth(d.getMonth() + i);
+    const d = new Date(base.getFullYear(), base.getMonth() + i, 1);
+    d.setDate(Math.min(base.getDate(), new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate()));
     const amount = i === n - 1 ? Math.round((total - per * (n - 1)) * 100) / 100 : per;
-    return { label: i === 0 ? "Deposit" : `Payment ${i + 1}`, amount, due_date: d.toISOString().slice(0, 10) };
+    return { label: i === 0 ? "Deposit" : `Payment ${i + 1}`, amount, due_date: fmt(d) };
   });
 }
 
@@ -59,7 +61,7 @@ function SectionEditor({ section, items, onChange, newLine }) {
         {mine.map((l) => (
           <div key={l._key} className="flex gap-2">
             <input type="text" className={inp + " flex-1 min-w-0"} placeholder="Description" data-testid={`line-desc-${section.key}`} value={l.desc} onChange={(e) => update(l._key, { desc: e.target.value })} />
-            <input className={inp + " w-20 sm:w-28 shrink-0"} type="number" inputMode="decimal" placeholder="$" data-testid={`line-price-${section.key}`} value={l.unit_price} onChange={(e) => update(l._key, { unit_price: e.target.value })} />
+            <input className={inp.replace("w-full ", "") + " w-20 sm:w-28 shrink-0"} type="number" inputMode="decimal" placeholder="$" data-testid={`line-price-${section.key}`} value={l.unit_price} onChange={(e) => update(l._key, { unit_price: e.target.value })} />
             <button onClick={() => onChange(items.filter((x) => x._key !== l._key))} aria-label="Remove" className="p-2 text-destructive shrink-0 inline-flex items-center justify-center"><X className="w-4 h-4" /></button>
           </div>
         ))}

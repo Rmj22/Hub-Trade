@@ -367,19 +367,33 @@ class Estimate(BaseModel):
     num_payments: int = 2
 
 
+def _add_months(d: datetime, n: int) -> datetime:
+    m = d.month - 1 + n
+    y, m = d.year + m // 12, m % 12 + 1
+    last = (datetime(y + (m == 12), (m % 12) + 1, 1) - timedelta(days=1)).day
+    return d.replace(year=y, month=m, day=min(d.day, last))
+
+
 def payment_schedule(total: float, start: Optional[str], n: int) -> List[dict]:
     n = max(1, min(int(n or 1), 12))
     try:
-        base = datetime.strptime(start, "%Y-%m-%d") if start else datetime.now(timezone.utc)
+        base = datetime.strptime(start, "%Y-%m-%d") if start else datetime.now(timezone.utc).replace(tzinfo=None)
     except ValueError:
-        base = datetime.now(timezone.utc)
+        base = datetime.now(timezone.utc).replace(tzinfo=None)
     per = round(total / n, 2)
     out = []
     for i in range(n):
         amt = round(total - per * (n - 1), 2) if i == n - 1 else per
         out.append({"label": "Deposit" if i == 0 else f"Payment {i + 1}", "amount": amt,
-                    "due_date": (base + timedelta(days=30 * i)).strftime("%Y-%m-%d")})
+                    "due_date": _add_months(base, i).strftime("%Y-%m-%d")})
     return out
+
+
+def deposit_amount(est: dict) -> float:
+    sched = est.get("payment_schedule") or []
+    if sched:
+        return round(float(sched[0].get("amount", 0)), 2)
+    return round(est.get("total", 0) * (est.get("deposit_percent", 25) or 0) / 100, 2)
 
 
 class MessageReq(BaseModel):
@@ -424,6 +438,8 @@ def crud_router(name: str, collection: str, Model, create_roles=("owner", "forem
         if collection == "jobs":
             doc["job_number"] = await next_job_number(user["company_id"])
             doc["name"] = f"#{doc['job_number']} – {doc.get('customer_name') or 'Customer'}"
+            if doc.get("status") != "completed":
+                doc["status"] = "active"
         res = await db[collection].insert_one(doc)
         doc["_id"] = res.inserted_id
         await log_audit(user["company_id"], user, f"Created {label}: {doc.get('name', '')}".strip())
@@ -621,7 +637,7 @@ async def send_estimate(item_id: str, user: dict = Depends(require_role("owner",
     if not est.get("public_token"):
         await db.estimates.update_one({"_id": est["_id"]}, {"$set": {"public_token": token}})
     link = f"{FRONTEND_URL}/estimate/{token}"
-    deposit = round(est.get("total", 0) * (est.get("deposit_percent", 25) or 0) / 100, 2)
+    deposit = deposit_amount(est)
     rows = "".join(
         f"<tr><td style='padding:8px;border-bottom:1px solid #eee'>{escape(str(li.get('desc','')))}</td>"
         f"<td style='padding:8px;border-bottom:1px solid #eee;text-align:center'>{li.get('qty',1)}</td>"
@@ -659,7 +675,7 @@ def _public_estimate(est: dict, comp: dict) -> dict:
     return {
         "company_name": comp.get("name", ""), "customer_name": est.get("customer_name", ""),
         "line_items": est.get("line_items", []), "notes": est.get("notes", ""), "total": total,
-        "status": est.get("status", "sent"), "deposit_percent": pct, "deposit_amount": round(total * pct / 100, 2),
+        "status": est.get("status", "sent"), "deposit_percent": pct, "deposit_amount": deposit_amount(est),
         "approved_at": est.get("approved_at"), "signature_name": est.get("signature_name"),
         "deposit_paid": bool(est.get("deposit_paid")), "deposit_paid_at": est.get("deposit_paid_at"),
         "created_at": est.get("created_at"), "payment_schedule": est.get("payment_schedule", []),
@@ -744,7 +760,7 @@ async def send_approval_emails(est: dict, comp: dict, token: str):
     pdf_b64 = base64.b64encode(build_estimate_pdf(est, comp)).decode()
     attachment = [{"filename": f"estimate-{str(est['_id'])[-6:].upper()}-signed.pdf", "content": pdf_b64}]
     link = f"{FRONTEND_URL}/estimate/{token}"
-    deposit = round(est.get("total", 0) * (est.get("deposit_percent", 25) or 0) / 100, 2)
+    deposit = deposit_amount(est)
     subject = f"Signed estimate from {comp.get('name','Hub Trade')} — ${est.get('total',0):,.2f}"
     sends = []
     if est.get("customer_email"):
@@ -774,7 +790,7 @@ async def estimate_deposit_checkout(token: str, req: DepositReq):
         raise HTTPException(400, "Approve the estimate before paying the deposit")
     if est.get("deposit_paid"):
         raise HTTPException(400, "Deposit already paid")
-    amount = round(est.get("total", 0) * (est.get("deposit_percent", 25) or 0) / 100, 2)
+    amount = deposit_amount(est)
     if amount <= 0:
         raise HTTPException(400, "No deposit required for this estimate")
     session = stripe.checkout.Session.create(
