@@ -7,7 +7,7 @@ import OfflineBanner from "./OfflineBanner";
 import TrialBanner from "./TrialBanner";
 import {
   LayoutDashboard, Briefcase, Users, Truck, Wrench, FileText,
-  Clock, MessageSquare, CalendarDays, BarChart3, CreditCard, LogOut, Menu, HardHat, X, LifeBuoy, ShieldCheck, ScrollText,
+  Clock, MessageSquare, CalendarDays, BarChart3, CreditCard, LogOut, Menu, HardHat, X, LifeBuoy, ShieldCheck, ScrollText, BookOpen,
 } from "lucide-react";
 
 const NAV = [
@@ -59,6 +59,10 @@ export default function Layout({ children }) {
         ))}
       </nav>
       <div className="p-3 border-t border-border">
+        <a href="/user-guide" target="_blank" rel="noreferrer" data-testid="nav-user-guide"
+          className="flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground w-full transition-colors mb-1">
+          <BookOpen className="w-4 h-4" /> User Guide
+        </a>
         {user?.is_superadmin && (
           <NavLink to="/admin-control-241" onClick={() => setOpen(false)} data-testid="nav-admin-control"
             className="flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium text-primary hover:bg-muted w-full transition-colors mb-1">

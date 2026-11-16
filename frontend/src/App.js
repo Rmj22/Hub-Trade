@@ -18,6 +18,7 @@ import AuditLogsPage from "./pages/AuditLogs";
 import DataEntryPage from "./pages/DataEntry";
 import AdminControl from "./pages/AdminControl";
 import { MembershipPage, PaymentSuccess } from "./pages/Membership";
+import UserGuide from "./pages/UserGuide";
 import { Loader2 } from "lucide-react";
 
 function Protected({ children, roles }) {
@@ -35,6 +36,7 @@ function App() {
       <BrowserRouter>
         <Routes>
           <Route path="/" element={<Landing />} />
+          <Route path="/user-guide" element={<UserGuide />} />
           <Route path="/login" element={<LoginPage />} />
           <Route path="/register" element={<RegisterPage />} />
           <Route path="/estimate/:token" element={<PublicEstimatePage />} />

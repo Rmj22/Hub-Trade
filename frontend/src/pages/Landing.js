@@ -1,7 +1,9 @@
+import { useState } from "react";
 import { Link } from "react-router-dom";
 import { motion } from "framer-motion";
-import { HardHat, ArrowRight, Briefcase, Users, Truck, Wrench, FileText, Clock, Check } from "lucide-react";
+import { HardHat, ArrowRight, Briefcase, Users, Truck, Wrench, FileText, Clock, Check, BookOpen } from "lucide-react";
 import ThemeToggle from "../components/ThemeToggle";
+import WelcomeTutorial from "../components/WelcomeTutorial";
 import { PLAN_PRICES } from "../lib/plans";
 
 const TRADE_TILES = [
@@ -27,8 +29,10 @@ const FEATURES = [
 ];
 
 export default function Landing() {
+  const [tour, setTour] = useState(0);
   return (
     <div className="relative min-h-screen bg-background text-foreground overflow-x-hidden">
+      <WelcomeTutorial forceOpen={tour > 0} onClose={() => setTour(0)} key={tour} />
       <header className="fixed top-0 inset-x-0 z-50 backdrop-blur-xl bg-background/70 border-b border-border">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
           <div className="flex items-center gap-2">
@@ -37,6 +41,7 @@ export default function Landing() {
           </div>
           <div className="flex items-center gap-3">
             <ThemeToggle />
+            <Link to="/user-guide" data-testid="landing-guide-link" className="hidden sm:inline-flex items-center gap-1 text-sm font-medium hover:text-primary transition-colors"><BookOpen className="w-4 h-4" /> User guide</Link>
             <Link to="/login" data-testid="landing-login-link" className="text-sm font-medium hover:text-primary transition-colors">Log in</Link>
             <Link to="/register" data-testid="landing-cta-nav" className="text-sm font-semibold px-4 py-2 rounded-md bg-primary text-primary-foreground hover:opacity-90 transition-opacity">Start free</Link>
           </div>
@@ -136,6 +141,10 @@ export default function Landing() {
         <div className="flex items-center gap-2 justify-center mb-2"><HardHat className="w-5 h-5 text-primary" /><span className="font-head font-bold">Hub Trade</span></div>
         Manage every part of your trade business from one platform.
         <div className="mt-4 flex items-center justify-center gap-4">
+          <Link to="/user-guide" data-testid="footer-guide-link" className="hover:text-foreground underline underline-offset-4 transition-colors">User Guide</Link>
+          <span>·</span>
+          <button onClick={() => setTour((n) => n + 1)} data-testid="footer-tutorial-btn" className="hover:text-foreground underline underline-offset-4 transition-colors">Replay tutorial</button>
+          <span>·</span>
           <a href="/privacy-policy.html" target="_blank" rel="noreferrer" data-testid="footer-privacy-link" className="hover:text-foreground underline underline-offset-4 transition-colors">Privacy Policy</a>
           <span>·</span>
           <a href="mailto:admin@summitofficesolution.com" data-testid="footer-contact-link" className="hover:text-foreground underline underline-offset-4 transition-colors">Contact</a>
