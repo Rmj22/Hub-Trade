@@ -61,7 +61,7 @@ export function LoginPage() {
 export function RegisterPage() {
   const { register } = useAuth();
   const nav = useNavigate();
-  const [form, setForm] = useState({ name: "", company_name: "", email: "", password: "" });
+  const [form, setForm] = useState({ name: "", company_name: "", email: "", password: "", phone: "", address: "" });
   const [loading, setLoading] = useState(false);
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
 
@@ -91,6 +91,8 @@ export function RegisterPage() {
           <form onSubmit={submit} className="space-y-4">
             <input data-testid="register-name" className={inp} placeholder="Your name" value={form.name} onChange={set("name")} required />
             <input data-testid="register-company" className={inp} placeholder="Company name" value={form.company_name} onChange={set("company_name")} required />
+            <input data-testid="register-phone" className={inp} placeholder="Phone" type="tel" name="tel" autoComplete="tel" value={form.phone} onChange={set("phone")} />
+            <input data-testid="register-address" className={inp} placeholder="Business address" name="street-address" autoComplete="street-address" value={form.address} onChange={set("address")} />
             <input data-testid="register-email" className={inp} placeholder="Email" type="email" name="email" autoComplete="username" value={form.email} onChange={set("email")} required />
             <input data-testid="register-password" className={inp} placeholder="Password" type="password" name="password" autoComplete="new-password" value={form.password} onChange={set("password")} required />
             <p className="text-xs text-muted-foreground">Your email and password are saved on this device so you can log in with one tap.</p>

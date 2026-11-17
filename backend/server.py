@@ -8,6 +8,7 @@ import io
 import csv
 import uuid
 import logging
+import asyncio
 import secrets
 from datetime import datetime, timezone, timedelta
 from typing import List, Optional, Annotated
@@ -229,6 +230,8 @@ class RegisterReq(BaseModel):
     password: str
     name: str
     company_name: str
+    phone: str = ""
+    address: str = ""
 
 
 class LoginReq(BaseModel):
@@ -237,22 +240,53 @@ class LoginReq(BaseModel):
 
 
 # ---------- Auth endpoints ----------
+ADMIN_CONTROL_WEBHOOK_URL = os.environ.get("ADMIN_CONTROL_WEBHOOK_URL", "")
+
+
+def client_record(u: dict, comp: dict, member_count: int, tickets: Optional[dict] = None) -> dict:
+    t = tickets or {"ticket_count": 0, "open_tickets": 0, "last_ticket_at": None}
+    return {
+        "client_id": str(u["_id"]), "name": u.get("name"), "email": u.get("email"), "role": u.get("role"),
+        "phone": u.get("phone") or comp.get("phone") or "", "address": comp.get("address") or "",
+        "company_id": str(comp.get("_id", u.get("company_id"))), "company_name": comp.get("name"),
+        "company_phone": comp.get("phone") or "", "member_count": member_count,
+        "plan": comp.get("plan"), "membership_status": comp.get("membership_status"),
+        "trial_ends_at": comp.get("trial_ends_at"), "archived_at": comp.get("archived_at"),
+        "created_at": u.get("created_at"), **t,
+    }
+
+
+async def push_admin_control(event: str, data: dict):
+    if not ADMIN_CONTROL_WEBHOOK_URL:
+        return
+    try:
+        async with httpx.AsyncClient(timeout=10) as c:
+            r = await c.post(ADMIN_CONTROL_WEBHOOK_URL, json={"event": event, "sent_at": now_iso(), "data": data},
+                             headers={"X-API-Key": os.environ.get("INTEGRATION_API_KEY", ""), "Content-Type": "application/json"})
+        logging.info("admin-control push %s -> %s", event, r.status_code)
+    except Exception as e:  # network failures must never break signup
+        logging.warning("admin-control push %s failed: %s", event, e)
+
+
 @api.post("/auth/register")
 async def register(req: RegisterReq, response: Response):
     email = req.email.lower()
     if await db.users.find_one({"email": email}):
         raise HTTPException(status_code=400, detail="Email already registered")
     trial_ends = datetime.now(timezone.utc) + timedelta(days=TRIAL_DAYS)
-    company = {"name": req.company_name, "plan": TRIAL_PLAN, "membership_status": "trial", "trial_used": True,
+    company = {"name": req.company_name, "phone": req.phone.strip(), "address": req.address.strip(),
+               "plan": TRIAL_PLAN, "membership_status": "trial", "trial_used": True,
                "trial_started_at": now_iso(), "trial_ends_at": trial_ends.isoformat(), "trade": "General", "created_at": now_iso()}
     comp_res = await db.companies.insert_one(company)
     company_id = str(comp_res.inserted_id)
     user_doc = {"email": email, "password_hash": hash_password(req.password), "name": req.name,
-                "role": "owner", "company_id": company_id, "created_at": now_iso()}
+                "phone": req.phone.strip(), "role": "owner", "company_id": company_id, "created_at": now_iso()}
     res = await db.users.insert_one(user_doc)
     token = create_access_token(str(res.inserted_id), email)
     set_cookies(response, token)
     user_doc["_id"] = res.inserted_id
+    company["_id"] = comp_res.inserted_id
+    asyncio.create_task(push_admin_control("client.created", client_record(user_doc, company, 1)))
     return clean(user_doc)
 
 
@@ -1397,6 +1431,7 @@ async def create_ticket(req: DataEntryTicketReq, user: dict = Depends(require_no
     res = await db.data_entry_tickets.insert_one(doc)
     doc["_id"] = res.inserted_id
     await log_audit(user["company_id"], user, f"Submitted data-entry ticket: {req.title}")
+    asyncio.create_task(push_admin_control("ticket.created", _ticket_out(dict(doc))))
     return clean(doc)
 
 
@@ -1490,17 +1525,8 @@ async def integration_clients(scope: str = Query("all")):
         uq = {"is_tester": {"$ne": True}}
     users = await db.users.find(uq).sort("_id", -1).to_list(10000)
     comps = {str(c["_id"]): c for c in await db.companies.find({"_id": {"$in": [ObjectId(u["company_id"]) for u in users if ObjectId.is_valid(u.get("company_id", ""))]}}).to_list(10000)}
-    out = []
-    for u in users:
-        comp = comps.get(u.get("company_id"), {})
-        out.append({
-            "client_id": str(u["_id"]), "name": u.get("name"), "email": u.get("email"), "role": u.get("role"),
-            "company_id": u.get("company_id"), "company_name": comp.get("name"), "plan": comp.get("plan"),
-            "membership_status": comp.get("membership_status"), "trial_ends_at": comp.get("trial_ends_at"),
-            "archived_at": comp.get("archived_at"), "created_at": u.get("created_at"),
-            **by_user.get(str(u["_id"]), {"ticket_count": 0, "open_tickets": 0, "last_ticket_at": None}),
-        })
-    return out
+    counts = {g["_id"]: g["n"] for g in await db.users.aggregate([{"$group": {"_id": "$company_id", "n": {"$sum": 1}}}]).to_list(10000)}
+    return [client_record(u, comps.get(u.get("company_id"), {}), counts.get(u.get("company_id"), 0), by_user.get(str(u["_id"]))) for u in users]
 
 
 @api.get("/integration/health", dependencies=[Depends(require_integration_key)])

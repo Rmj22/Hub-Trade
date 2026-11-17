@@ -12,3 +12,8 @@ Base: `https://trademainhub.com/api`
 - `POST /integration/tickets/{ticket_id}/messages` body `{body, author?, attachments?}` — reply in the ticket thread (owner notified). Tickets include `attachments[]` and `messages[]` ({id, author, author_role owner|admin, body, attachments, created_at}).
 - `GET /integration/files/{path}` — download a ticket attachment (path from attachments[].path). Allowed uploads: images, PDF, CSV, TXT, XLS/XLSX, DOC/DOCX, 10 MB.
 - `GET /integration/health` — key check: {ok, users, companies, tickets}
+
+## Push webhook (Hub Trade -> Admin Control)
+Set backend env `ADMIN_CONTROL_WEBHOOK_URL` (Admin Control endpoint). Hub Trade POSTs JSON `{event, sent_at, data}` with header `X-API-Key: <INTEGRATION_API_KEY>`.
+Events: `client.created` (data = client record incl. phone, address, company_phone, member_count) and `ticket.created` (data = ticket). Fire-and-forget, 10s timeout.
+Client record fields now also include: phone, address, company_phone, member_count. Register accepts optional phone + address.
