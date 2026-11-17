@@ -35,6 +35,13 @@ export default function AdminControl() {
     } catch (e) { toast.error(errMsg(e)); }
   };
 
+  const replyTicket = async (msg) => {
+    const { data } = await api.post(`/admin/data-entry-tickets/${edit.id}/messages`, msg);
+    setEdit((e) => ({ ...e, messages: data.messages }));
+    setTickets((list) => list.map((t) => (t.id === data.id ? data : t)));
+    toast.success("Reply sent");
+  };
+
   if (user && !user.is_superadmin) return null;
   if (!user || !stats) {
     return <div className="min-h-screen flex items-center justify-center bg-background"><Loader2 className="w-8 h-8 animate-spin text-primary" /></div>;
@@ -65,7 +72,7 @@ export default function AdminControl() {
         <TicketsTable tickets={tickets} onManage={(t) => setEdit({ ...t })} />
       </main>
 
-      {edit && <TicketModal edit={edit} setEdit={setEdit} onSave={saveTicket} />}
+      {edit && <TicketModal edit={edit} setEdit={setEdit} onSave={saveTicket} onReply={replyTicket} />}
     </div>
   );
 }

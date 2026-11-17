@@ -1,6 +1,9 @@
 import { X } from "lucide-react";
+import { API } from "../../lib/api";
+import { ModalShell } from "../crud/CrudParts";
+import { AttachmentList, MessageThread, ReplyBox } from "../dataentry/TicketParts";
 
-const statBadge = { open: "bg-primary/20 text-primary", in_progress: "bg-amber-500/15 text-amber-500", done: "bg-green-500/15 text-green-500" };
+const statBadge = { open: "bg-primary/20 text-primary", in_progress: "bg-amber-500/15 text-amber-500", completed: "bg-green-500/15 text-green-500", done: "bg-green-500/15 text-green-500", closed: "bg-muted text-muted-foreground" };
 const priBadge = { low: "bg-muted text-muted-foreground", normal: "bg-blue-500/15 text-blue-500", high: "bg-destructive/15 text-destructive" };
 const HEADERS = ["Company", "Title", "Category", "Priority", "Hours", "By", "Status", ""];
 const inp = "w-full px-3 py-2 rounded-md border border-input bg-background text-sm focus:ring-2 focus:ring-primary focus:outline-none";
@@ -44,22 +47,24 @@ export function TicketsTable({ tickets, onManage }) {
   );
 }
 
-export function TicketModal({ edit, setEdit, onSave }) {
+export function TicketModal({ edit, setEdit, onSave, onReply }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/60" onClick={() => setEdit(null)} />
-      <div className="relative bg-card border border-border rounded-md w-full max-w-lg p-6" data-testid="admin-ticket-modal">
-        <div className="flex items-center justify-between mb-4"><h2 className="font-head font-bold text-xl">{edit.title}</h2><button onClick={() => setEdit(null)}><X className="w-5 h-5" /></button></div>
-        <div className="text-sm text-muted-foreground mb-4">{edit.company_name} · {edit.category} · {edit.hours_requested || 0} hrs</div>
-        <p className="text-sm mb-4">{edit.description || "—"}</p>
+    <ModalShell title={edit.title} onClose={() => setEdit(null)} testid="admin-ticket-modal">
+        <div className="text-sm text-muted-foreground mb-4">{edit.company_name} · {edit.category} · {edit.hours_requested || 0} hrs · by {edit.created_by}</div>
+        <p className="text-sm mb-3">{edit.description || "—"}</p>
+        <div className="mb-4"><AttachmentList files={edit.attachments} base={`${API}/admin/files`} /></div>
         <label className="block text-xs uppercase tracking-wider text-muted-foreground mb-1.5">Status</label>
         <select data-testid="admin-ticket-status" className={inp + " mb-4"} value={edit.status} onChange={(e) => setEdit({ ...edit, status: e.target.value })}>
-          <option value="open">Open</option><option value="in_progress">In progress</option><option value="done">Done</option>
+          <option value="open">Open</option><option value="in_progress">In progress</option><option value="completed">Completed</option><option value="closed">Closed</option>
         </select>
         <label className="block text-xs uppercase tracking-wider text-muted-foreground mb-1.5">Note to customer</label>
-        <textarea data-testid="admin-ticket-notes" rows={3} className={inp} value={edit.admin_notes || ""} onChange={(e) => setEdit({ ...edit, admin_notes: e.target.value })} />
-        <button data-testid="admin-ticket-save-btn" onClick={onSave} className="w-full mt-5 py-2.5 rounded-md bg-primary text-primary-foreground font-semibold">Save</button>
-      </div>
-    </div>
+        <textarea data-testid="admin-ticket-notes" rows={2} className={inp} value={edit.admin_notes || ""} onChange={(e) => setEdit({ ...edit, admin_notes: e.target.value })} />
+        <button data-testid="admin-ticket-save-btn" onClick={onSave} className="w-full mt-4 py-2.5 rounded-md bg-primary text-primary-foreground font-semibold">Save</button>
+        <div className="mt-5 pt-4 border-t border-border">
+          <div className="text-xs uppercase tracking-wider text-muted-foreground mb-2">Conversation</div>
+          <MessageThread messages={edit.messages} mine="admin" fileBase={`${API}/admin/files`} />
+          <ReplyBox onSend={onReply} allowFiles={false} testid="admin-ticket-reply" />
+        </div>
+    </ModalShell>
   );
 }

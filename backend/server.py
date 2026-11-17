@@ -1053,12 +1053,7 @@ async def download_file(path: str, user: dict = Depends(require_not_archived)):
     record = await db.files.find_one({"storage_path": path, "company_id": user["company_id"], "is_deleted": False})
     if not record:
         raise HTTPException(404, "File not found")
-    data, _ = get_object(path)
-    ct = record.get("content_type") if record.get("content_type") in ALLOWED_UPLOAD_TYPES else "application/octet-stream"
-    disposition = "inline" if ct.startswith("image/") else "attachment"
-    return StarletteResponse(content=data, media_type=ct, headers={
-        "X-Content-Type-Options": "nosniff", "Content-Disposition": f'{disposition}; filename="{path.rsplit("/", 1)[-1]}"',
-        "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox"})
+    return _serve_file(record, path)
 
 
 # ---------- Time cards ----------
@@ -1316,6 +1311,74 @@ class DataEntryTicketReq(BaseModel):
     priority: str = "normal"  # low, normal, high
     description: str = ""
     hours_requested: float = 0
+    attachments: List[dict] = []  # {path, name, content_type, size}
+
+
+TICKET_FILE_TYPES = {
+    **{t: t.split("/")[-1].replace("jpeg", "jpg") for t in ("image/jpeg", "image/png", "image/webp", "image/gif", "image/heic")},
+    "application/pdf": "pdf", "text/csv": "csv", "text/plain": "txt",
+    "application/vnd.ms-excel": "xls",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": "xlsx",
+    "application/msword": "doc",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "docx",
+}
+TICKET_FILE_EXTS = {v: k for k, v in TICKET_FILE_TYPES.items()}
+
+
+@api.post("/data-entry-tickets/upload")
+async def ticket_upload(file: UploadFile = File(...), user: dict = Depends(require_not_archived)):
+    ext = (file.filename or "").rsplit(".", 1)[-1].lower() if "." in (file.filename or "") else ""
+    ext = "jpg" if ext == "jpeg" else ext
+    ct = (file.content_type or "").lower()
+    if ct not in TICKET_FILE_TYPES:
+        ct = TICKET_FILE_EXTS.get(ext)
+    if not ct:
+        raise HTTPException(400, "Allowed: images, PDF, CSV, TXT, XLS/XLSX, DOC/DOCX")
+    data = await file.read()
+    if len(data) > MAX_UPLOAD_BYTES:
+        raise HTTPException(413, "File too large (max 10 MB)")
+    path = f"{APP_NAME}/{user['company_id']}/tickets/{uuid.uuid4()}.{TICKET_FILE_TYPES[ct]}"
+    result = put_object(path, data, ct)
+    await db.files.insert_one({"storage_path": result["path"], "content_type": ct, "original_name": file.filename,
+                               "company_id": user["company_id"], "is_deleted": False, "created_at": now_iso()})
+    return {"path": result["path"], "name": file.filename, "content_type": ct, "size": len(data)}
+
+
+def _serve_file(record: dict, path: str):
+    data, _ = get_object(path)
+    ct = record.get("content_type") or "application/octet-stream"
+    disposition = "inline" if ct.startswith("image/") or ct == "application/pdf" else "attachment"
+    fname = record.get("original_name") or path.rsplit("/", 1)[-1]
+    return StarletteResponse(content=data, media_type=ct, headers={
+        "X-Content-Type-Options": "nosniff", "Content-Disposition": f'{disposition}; filename="{fname}"',
+        "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox"})
+
+
+class TicketMessageReq(BaseModel):
+    body: str
+    attachments: List[dict] = []
+
+
+def _message(author: str, role: str, body: str, attachments: list) -> dict:
+    return {"id": str(uuid.uuid4()), "author": author, "author_role": role, "body": body.strip(),
+            "attachments": attachments or [], "created_at": now_iso()}
+
+
+async def _append_message(ticket: dict, msg: dict, notify_company: bool):
+    await db.data_entry_tickets.update_one({"_id": ticket["_id"]}, {"$push": {"messages": msg}, "$set": {"updated_at": msg["created_at"]}})
+    if notify_company:
+        await create_notification(ticket["company_id"], f'New reply on ticket "{ticket.get("title")}" from the data-entry team.', str(ticket["_id"]))
+    return clean(await db.data_entry_tickets.find_one({"_id": ticket["_id"]}))
+
+
+@api.post("/data-entry-tickets/{ticket_id}/messages")
+async def ticket_reply(ticket_id: str, req: TicketMessageReq, user: dict = Depends(require_not_archived)):
+    t = await db.data_entry_tickets.find_one({"_id": _oid(ticket_id), "company_id": user["company_id"]})
+    if not t:
+        raise HTTPException(404, "Ticket not found")
+    if not req.body.strip() and not req.attachments:
+        raise HTTPException(400, "Message is empty")
+    return await _append_message(t, _message(user["name"], "owner", req.body, req.attachments), False)
 
 
 @api.get("/data-entry-tickets")
@@ -1330,7 +1393,7 @@ async def create_ticket(req: DataEntryTicketReq, user: dict = Depends(require_no
     doc = {**req.model_dump(), "company_id": user["company_id"],
            "company_name": comp.get("name") if comp else "",
            "created_by": user["name"], "created_by_id": str(user["_id"]),
-           "status": "open", "admin_notes": "", "created_at": now_iso()}
+           "status": "open", "admin_notes": "", "messages": [], "created_at": now_iso()}
     res = await db.data_entry_tickets.insert_one(doc)
     doc["_id"] = res.inserted_id
     await log_audit(user["company_id"], user, f"Submitted data-entry ticket: {req.title}")
@@ -1356,11 +1419,15 @@ async def admin_update_ticket(ticket_id: str, req: AdminTicketUpdate, user: dict
         raise HTTPException(404, "Ticket not found")
     upd = {k: v for k, v in req.model_dump().items() if v is not None}
     upd["updated_at"] = now_iso()
+    note_changed = bool(upd.get("admin_notes")) and upd["admin_notes"] != existing.get("admin_notes", "")
+    if note_changed:
+        upd_msg = _message(user.get("name") or "Data-entry team", "admin", upd["admin_notes"], [])
+        await db.data_entry_tickets.update_one({"_id": ObjectId(ticket_id)}, {"$push": {"messages": upd_msg}})
     await db.data_entry_tickets.update_one({"_id": ObjectId(ticket_id)}, {"$set": upd})
     parts = []
     if upd.get("status") and upd["status"] != existing.get("status"):
         parts.append(f"marked {upd['status'].replace('_', ' ')}")
-    if upd.get("admin_notes") and upd["admin_notes"] != existing.get("admin_notes", ""):
+    if note_changed:
         parts.append("a note was added by the data-entry team")
     if parts:
         await create_notification(existing["company_id"],
@@ -1368,6 +1435,24 @@ async def admin_update_ticket(ticket_id: str, req: AdminTicketUpdate, user: dict
             str(existing["_id"]))
     item = await db.data_entry_tickets.find_one({"_id": ObjectId(ticket_id)})
     return clean(item)
+
+
+@api.post("/admin/data-entry-tickets/{ticket_id}/messages")
+async def admin_ticket_reply(ticket_id: str, req: TicketMessageReq, user: dict = Depends(require_superadmin)):
+    t = await db.data_entry_tickets.find_one({"_id": _oid(ticket_id)})
+    if not t:
+        raise HTTPException(404, "Ticket not found")
+    if not req.body.strip():
+        raise HTTPException(400, "Message is empty")
+    return await _append_message(t, _message(user.get("name") or "Data-entry team", "admin", req.body, req.attachments), True)
+
+
+@api.get("/admin/files/{path:path}")
+async def admin_download_file(path: str, user: dict = Depends(require_superadmin)):
+    record = await db.files.find_one({"storage_path": path, "is_deleted": False})
+    if not record:
+        raise HTTPException(404, "File not found")
+    return _serve_file(record, path)
 
 
 # ---------- Integration API (Admin Control, API-key protected) ----------
@@ -1380,7 +1465,7 @@ async def require_integration_key(x_api_key: str = Header(None)):
 
 
 def _ticket_out(t: dict) -> dict:
-    t = clean(t)
+    t = clean(t) if "_id" in t else t
     t["ticket_id"] = t["id"]
     return t
 
@@ -1438,6 +1523,28 @@ async def integration_update_ticket(ticket_id: str, req: AdminTicketUpdate):
         raise HTTPException(400, "status must be open, in_progress, completed or closed")
     system = {"_id": "admin-control", "name": "Admin Control", "email": "admin-control", "role": "superadmin"}
     return await admin_update_ticket(ticket_id, req, system)
+
+
+class IntegrationMessageReq(TicketMessageReq):
+    author: str = "Admin Control"
+
+
+@api.post("/integration/tickets/{ticket_id}/messages", dependencies=[Depends(require_integration_key)])
+async def integration_ticket_reply(ticket_id: str, req: IntegrationMessageReq):
+    t = await db.data_entry_tickets.find_one({"_id": _oid(ticket_id)})
+    if not t:
+        raise HTTPException(404, "Ticket not found")
+    if not req.body.strip():
+        raise HTTPException(400, "Message is empty")
+    return _ticket_out(await _append_message(t, _message(req.author, "admin", req.body, req.attachments), True))
+
+
+@api.get("/integration/files/{path:path}", dependencies=[Depends(require_integration_key)])
+async def integration_download_file(path: str):
+    record = await db.files.find_one({"storage_path": path, "is_deleted": False})
+    if not record:
+        raise HTTPException(404, "File not found")
+    return _serve_file(record, path)
 
 
 @api.get("/notifications")

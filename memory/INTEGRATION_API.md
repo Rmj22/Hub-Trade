@@ -9,3 +9,5 @@ Base: `https://trademainhub.com/api`
   (ticket_id, title, category, priority, description, hours_requested, status, admin_notes, company_id, company_name, created_by, created_by_id, created_at, updated_at)
 - `GET /integration/tickets/{ticket_id}`
 - `PUT /integration/tickets/{ticket_id}` body `{status?, admin_notes?}` — writes back; owner gets an in-app notification and sees notes in Data-Entry Help.
+- `POST /integration/tickets/{ticket_id}/messages` body `{body, author?, attachments?}` — reply in the ticket thread (owner notified). Tickets include `attachments[]` and `messages[]` ({id, author, author_role owner|admin, body, attachments, created_at}).
+- `GET /integration/files/{path}` — download a ticket attachment (path from attachments[].path). Allowed uploads: images, PDF, CSV, TXT, XLS/XLSX, DOC/DOCX, 10 MB.
