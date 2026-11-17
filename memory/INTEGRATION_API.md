@@ -17,3 +17,4 @@ Base: `https://trademainhub.com/api`
 Set backend env `ADMIN_CONTROL_WEBHOOK_URL` (Admin Control endpoint). Hub Trade POSTs JSON `{event, sent_at, data}` with header `X-API-Key: <INTEGRATION_API_KEY>`.
 Events: `client.created` (data = client record incl. phone, address, company_phone, member_count) and `ticket.created` (data = ticket). Fire-and-forget, 10s timeout.
 Client record fields now also include: phone, address, company_phone, member_count. Register accepts optional phone + address.
+- Auth also accepts `Authorization: Bearer <key>`. Push webhook sends X-Hubtrade-Secret, Authorization: Bearer and X-API-Key = ADMIN_CONTROL_WEBHOOK_SECRET (falls back to INTEGRATION_API_KEY).

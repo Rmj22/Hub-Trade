@@ -241,6 +241,7 @@ class LoginReq(BaseModel):
 
 # ---------- Auth endpoints ----------
 ADMIN_CONTROL_WEBHOOK_URL = os.environ.get("ADMIN_CONTROL_WEBHOOK_URL", "")
+ADMIN_CONTROL_WEBHOOK_SECRET = os.environ.get("ADMIN_CONTROL_WEBHOOK_SECRET", "")
 
 
 def client_record(u: dict, comp: dict, member_count: int, tickets: Optional[dict] = None) -> dict:
@@ -259,10 +260,12 @@ def client_record(u: dict, comp: dict, member_count: int, tickets: Optional[dict
 async def push_admin_control(event: str, data: dict):
     if not ADMIN_CONTROL_WEBHOOK_URL:
         return
+    secret = ADMIN_CONTROL_WEBHOOK_SECRET or os.environ.get("INTEGRATION_API_KEY", "")
     try:
         async with httpx.AsyncClient(timeout=10) as c:
             r = await c.post(ADMIN_CONTROL_WEBHOOK_URL, json={"event": event, "sent_at": now_iso(), "data": data},
-                             headers={"X-API-Key": os.environ.get("INTEGRATION_API_KEY", ""), "Content-Type": "application/json"})
+                             headers={"X-Hubtrade-Secret": secret, "Authorization": f"Bearer {secret}",
+                                      "X-API-Key": secret, "Content-Type": "application/json"})
         logging.info("admin-control push %s -> %s", event, r.status_code)
     except Exception as e:  # network failures must never break signup
         logging.warning("admin-control push %s failed: %s", event, e)
@@ -1494,8 +1497,9 @@ async def admin_download_file(path: str, user: dict = Depends(require_superadmin
 INTEGRATION_API_KEY = os.environ.get("INTEGRATION_API_KEY")
 
 
-async def require_integration_key(x_api_key: str = Header(None)):
-    if not INTEGRATION_API_KEY or not x_api_key or not secrets.compare_digest(x_api_key, INTEGRATION_API_KEY):
+async def require_integration_key(x_api_key: str = Header(None), authorization: str = Header(None)):
+    supplied = x_api_key or (authorization[7:].strip() if authorization and authorization.lower().startswith("bearer ") else None)
+    if not INTEGRATION_API_KEY or not supplied or not secrets.compare_digest(supplied, INTEGRATION_API_KEY):
         raise HTTPException(401, "Invalid API key")
 
 
