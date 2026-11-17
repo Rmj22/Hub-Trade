@@ -1370,6 +1370,76 @@ async def admin_update_ticket(ticket_id: str, req: AdminTicketUpdate, user: dict
     return clean(item)
 
 
+# ---------- Integration API (Admin Control, API-key protected) ----------
+INTEGRATION_API_KEY = os.environ.get("INTEGRATION_API_KEY")
+
+
+async def require_integration_key(x_api_key: str = Header(None)):
+    if not INTEGRATION_API_KEY or not x_api_key or not secrets.compare_digest(x_api_key, INTEGRATION_API_KEY):
+        raise HTTPException(401, "Invalid API key")
+
+
+def _ticket_out(t: dict) -> dict:
+    t = clean(t)
+    t["ticket_id"] = t["id"]
+    return t
+
+
+@api.get("/integration/clients", dependencies=[Depends(require_integration_key)])
+async def integration_clients():
+    tickets = await db.data_entry_tickets.find({}).sort("_id", -1).to_list(5000)
+    by_user: dict = {}
+    for t in tickets:
+        uid = t.get("created_by_id")
+        if not uid:
+            continue
+        c = by_user.setdefault(uid, {"ticket_count": 0, "open_tickets": 0, "last_ticket_at": t.get("created_at")})
+        c["ticket_count"] += 1
+        if t.get("status") == "open":
+            c["open_tickets"] += 1
+    if not by_user:
+        return []
+    users = await db.users.find({"_id": {"$in": [ObjectId(u) for u in by_user if ObjectId.is_valid(u)]}}).to_list(5000)
+    comps = {str(c["_id"]): c for c in await db.companies.find({"_id": {"$in": [ObjectId(u["company_id"]) for u in users]}}).to_list(5000)}
+    out = []
+    for u in users:
+        comp = comps.get(u["company_id"], {})
+        out.append({
+            "client_id": str(u["_id"]), "name": u.get("name"), "email": u.get("email"), "role": u.get("role"),
+            "company_id": u["company_id"], "company_name": comp.get("name"), "plan": comp.get("plan"),
+            "membership_status": comp.get("membership_status"), "trial_ends_at": comp.get("trial_ends_at"),
+            "archived_at": comp.get("archived_at"), "created_at": u.get("created_at"), **by_user[str(u["_id"])],
+        })
+    return out
+
+
+@api.get("/integration/tickets", dependencies=[Depends(require_integration_key)])
+async def integration_tickets(since: Optional[str] = Query(None), status: Optional[str] = Query(None)):
+    q: dict = {}
+    if since:
+        q["$or"] = [{"created_at": {"$gte": since}}, {"updated_at": {"$gte": since}}]
+    if status:
+        q["status"] = status
+    items = await db.data_entry_tickets.find(q).sort("_id", -1).to_list(5000)
+    return [_ticket_out(t) for t in items]
+
+
+@api.get("/integration/tickets/{ticket_id}", dependencies=[Depends(require_integration_key)])
+async def integration_ticket(ticket_id: str):
+    t = await db.data_entry_tickets.find_one({"_id": _oid(ticket_id)})
+    if not t:
+        raise HTTPException(404, "Ticket not found")
+    return _ticket_out(t)
+
+
+@api.put("/integration/tickets/{ticket_id}", dependencies=[Depends(require_integration_key)])
+async def integration_update_ticket(ticket_id: str, req: AdminTicketUpdate):
+    if req.status and req.status not in ("open", "in_progress", "completed", "closed"):
+        raise HTTPException(400, "status must be open, in_progress, completed or closed")
+    system = {"_id": "admin-control", "name": "Admin Control", "email": "admin-control", "role": "superadmin"}
+    return await admin_update_ticket(ticket_id, req, system)
+
+
 @api.get("/notifications")
 async def list_notifications(user: dict = Depends(require_not_archived)):
     items = await db.notifications.find({"company_id": user["company_id"]}).sort("_id", -1).limit(50).to_list(50)
