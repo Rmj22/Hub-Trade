@@ -1471,7 +1471,7 @@ def _ticket_out(t: dict) -> dict:
 
 
 @api.get("/integration/clients", dependencies=[Depends(require_integration_key)])
-async def integration_clients():
+async def integration_clients(scope: str = Query("all")):
     tickets = await db.data_entry_tickets.find({}).sort("_id", -1).to_list(5000)
     by_user: dict = {}
     for t in tickets:
@@ -1482,20 +1482,31 @@ async def integration_clients():
         c["ticket_count"] += 1
         if t.get("status") == "open":
             c["open_tickets"] += 1
-    if not by_user:
-        return []
-    users = await db.users.find({"_id": {"$in": [ObjectId(u) for u in by_user if ObjectId.is_valid(u)]}}).to_list(5000)
-    comps = {str(c["_id"]): c for c in await db.companies.find({"_id": {"$in": [ObjectId(u["company_id"]) for u in users]}}).to_list(5000)}
+    if scope == "ticket_creators":
+        if not by_user:
+            return []
+        uq = {"_id": {"$in": [ObjectId(u) for u in by_user if ObjectId.is_valid(u)]}}
+    else:
+        uq = {"is_tester": {"$ne": True}}
+    users = await db.users.find(uq).sort("_id", -1).to_list(10000)
+    comps = {str(c["_id"]): c for c in await db.companies.find({"_id": {"$in": [ObjectId(u["company_id"]) for u in users if ObjectId.is_valid(u.get("company_id", ""))]}}).to_list(10000)}
     out = []
     for u in users:
-        comp = comps.get(u["company_id"], {})
+        comp = comps.get(u.get("company_id"), {})
         out.append({
             "client_id": str(u["_id"]), "name": u.get("name"), "email": u.get("email"), "role": u.get("role"),
-            "company_id": u["company_id"], "company_name": comp.get("name"), "plan": comp.get("plan"),
+            "company_id": u.get("company_id"), "company_name": comp.get("name"), "plan": comp.get("plan"),
             "membership_status": comp.get("membership_status"), "trial_ends_at": comp.get("trial_ends_at"),
-            "archived_at": comp.get("archived_at"), "created_at": u.get("created_at"), **by_user[str(u["_id"])],
+            "archived_at": comp.get("archived_at"), "created_at": u.get("created_at"),
+            **by_user.get(str(u["_id"]), {"ticket_count": 0, "open_tickets": 0, "last_ticket_at": None}),
         })
     return out
+
+
+@api.get("/integration/health", dependencies=[Depends(require_integration_key)])
+async def integration_health():
+    return {"ok": True, "users": await db.users.count_documents({}), "companies": await db.companies.count_documents({}),
+            "tickets": await db.data_entry_tickets.count_documents({})}
 
 
 @api.get("/integration/tickets", dependencies=[Depends(require_integration_key)])
