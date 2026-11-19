@@ -68,7 +68,7 @@ def build_estimate_pdf(est: dict, company: dict) -> bytes:
         [Paragraph("PREPARED FOR", LABEL), Paragraph("DATE", LABEL), Paragraph("DEPOSIT", LABEL)],
         [Paragraph(f"{escape(est.get('customer_name', ''))}<br/>{escape(est.get('customer_email', '') or '')}", BODY),
          Paragraph(_fmt(est.get("created_at"))[:18], BODY),
-         Paragraph(f"{est.get('deposit_percent', 25):g}% — {_money(est.get('total', 0) * (est.get('deposit_percent', 25) or 0) / 100)}", BODY)],
+         Paragraph(_money((est.get("payment_schedule") or [{}])[0].get("amount", est.get("total", 0) * (est.get("deposit_percent", 25) or 0) / 100)), BODY)],
     ], colWidths=[3.2 * inch, 2 * inch, 1.8 * inch])
     meta.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP"), ("LINEBELOW", (0, -1), (-1, -1), 0.5, LINE), ("BOTTOMPADDING", (0, -1), (-1, -1), 10)]))
     story.append(meta)

@@ -8,6 +8,7 @@ import io
 import csv
 import uuid
 import logging
+import asyncio
 import secrets
 from datetime import datetime, timezone, timedelta
 from typing import List, Optional, Annotated
@@ -54,6 +55,10 @@ STORAGE_URL = "https://integrations.emergentagent.com/objstore/api/v1/storage"
 EMERGENT_KEY = os.environ.get("EMERGENT_LLM_KEY")
 APP_NAME = "fieldforge"
 storage_key = None
+
+TRIAL_DAYS = int(os.environ.get("TRIAL_DAYS", "15"))
+TRIAL_PLAN = "medium"
+ARCHIVE_GRACE_DAYS = int(os.environ.get("ARCHIVE_GRACE_DAYS", "5"))
 
 PLAN_LIMITS = {
     "startup": {"name": "Startup", "monthly": 60, "lookup_key": "startup_6mo", "employees": 20, "vehicles": 3, "jobs": 10, "equipment": 30, "data_hours": 5},
@@ -157,15 +162,46 @@ async def get_current_user(request: Request) -> dict:
         raise HTTPException(status_code=401, detail="Invalid token")
 
 
+async def _expire_trial(comp: dict) -> dict:
+    now = datetime.now(timezone.utc)
+    status = comp.get("membership_status")
+    if status == "trial":
+        ends = comp.get("trial_ends_at")
+        if ends and datetime.fromisoformat(ends) > now:
+            comp["trial_days_left"] = max(1, (datetime.fromisoformat(ends) - now).days + 1)
+            return comp
+        upd = {"membership_status": "archived", "plan": None, "archived_at": now_iso()}
+        await db.companies.update_one({"_id": comp["_id"]}, {"$set": upd})
+        comp = {**comp, **upd}
+    if comp.get("membership_status") == "archived" and comp.get("archived_at"):
+        purge_at = datetime.fromisoformat(comp["archived_at"]) + timedelta(days=ARCHIVE_GRACE_DAYS)
+        comp["days_until_removal"] = max(0, (purge_at - now).days + 1)
+    return comp
+
+
+ARCHIVE_ALLOWED_PREFIXES = ("/api/auth/", "/api/membership", "/api/payments/", "/api/stripe/")
+
+
+async def require_not_archived(request: Request, user: dict = Depends(get_current_user)) -> dict:
+    if request.url.path.startswith(ARCHIVE_ALLOWED_PREFIXES) or user.get("is_superadmin"):
+        return user
+    comp = await db.companies.find_one({"_id": ObjectId(user["company_id"])}, {"membership_status": 1, "trial_ends_at": 1, "archived_at": 1})
+    if comp:
+        comp = await _expire_trial(comp)
+        if comp.get("membership_status") == "archived":
+            raise HTTPException(402, "Your free trial has ended and this account is archived. Choose a plan to reactivate it.")
+    return user
+
+
 def require_role(*roles):
-    async def dep(user: dict = Depends(get_current_user)):
+    async def dep(user: dict = Depends(require_not_archived)):
         if user.get("role") not in roles:
             raise HTTPException(status_code=403, detail="Insufficient permissions")
         return user
     return dep
 
 
-async def require_superadmin(user: dict = Depends(get_current_user)):
+async def require_superadmin(user: dict = Depends(require_not_archived)):
     if not user.get("is_superadmin"):
         raise HTTPException(status_code=403, detail="Admin access only")
     return user
@@ -194,28 +230,66 @@ class RegisterReq(BaseModel):
     password: str
     name: str
     company_name: str
+    phone: str = ""
+    address: str = ""
 
 
 class LoginReq(BaseModel):
-    email: EmailStr
+    email: str
     password: str
 
 
 # ---------- Auth endpoints ----------
+ADMIN_CONTROL_WEBHOOK_URL = os.environ.get("ADMIN_CONTROL_WEBHOOK_URL", "")
+ADMIN_CONTROL_WEBHOOK_SECRET = os.environ.get("ADMIN_CONTROL_WEBHOOK_SECRET", "")
+
+
+def client_record(u: dict, comp: dict, member_count: int, tickets: Optional[dict] = None) -> dict:
+    t = tickets or {"ticket_count": 0, "open_tickets": 0, "last_ticket_at": None}
+    return {
+        "client_id": str(u["_id"]), "name": u.get("name"), "email": u.get("email"), "role": u.get("role"),
+        "phone": u.get("phone") or comp.get("phone") or "", "address": comp.get("address") or "",
+        "company_id": str(comp.get("_id", u.get("company_id"))), "company_name": comp.get("name"),
+        "company_phone": comp.get("phone") or "", "member_count": member_count,
+        "plan": comp.get("plan"), "membership_status": comp.get("membership_status"),
+        "trial_ends_at": comp.get("trial_ends_at"), "archived_at": comp.get("archived_at"),
+        "created_at": u.get("created_at"), **t,
+    }
+
+
+async def push_admin_control(event: str, data: dict):
+    if not ADMIN_CONTROL_WEBHOOK_URL:
+        return
+    secret = ADMIN_CONTROL_WEBHOOK_SECRET or os.environ.get("INTEGRATION_API_KEY", "")
+    try:
+        async with httpx.AsyncClient(timeout=10) as c:
+            r = await c.post(ADMIN_CONTROL_WEBHOOK_URL, json={"event": event, "sent_at": now_iso(), "data": data},
+                             headers={"X-Hubtrade-Secret": secret, "Authorization": f"Bearer {secret}",
+                                      "X-API-Key": secret, "Content-Type": "application/json"})
+        logging.info("admin-control push %s -> %s", event, r.status_code)
+    except Exception as e:  # network failures must never break signup
+        logging.warning("admin-control push %s failed: %s", event, e)
+
+
 @api.post("/auth/register")
 async def register(req: RegisterReq, response: Response):
     email = req.email.lower()
     if await db.users.find_one({"email": email}):
         raise HTTPException(status_code=400, detail="Email already registered")
-    company = {"name": req.company_name, "plan": None, "membership_status": "inactive", "trade": "General", "created_at": now_iso()}
+    trial_ends = datetime.now(timezone.utc) + timedelta(days=TRIAL_DAYS)
+    company = {"name": req.company_name, "phone": req.phone.strip(), "address": req.address.strip(),
+               "plan": TRIAL_PLAN, "membership_status": "trial", "trial_used": True,
+               "trial_started_at": now_iso(), "trial_ends_at": trial_ends.isoformat(), "trade": "General", "created_at": now_iso()}
     comp_res = await db.companies.insert_one(company)
     company_id = str(comp_res.inserted_id)
     user_doc = {"email": email, "password_hash": hash_password(req.password), "name": req.name,
-                "role": "owner", "company_id": company_id, "created_at": now_iso()}
+                "phone": req.phone.strip(), "role": "owner", "company_id": company_id, "created_at": now_iso()}
     res = await db.users.insert_one(user_doc)
     token = create_access_token(str(res.inserted_id), email)
     set_cookies(response, token)
     user_doc["_id"] = res.inserted_id
+    company["_id"] = comp_res.inserted_id
+    asyncio.create_task(push_admin_control("client.created", client_record(user_doc, company, 1)))
     return clean(user_doc)
 
 
@@ -242,7 +316,7 @@ async def logout(response: Response):
 
 
 @api.get("/auth/me")
-async def me(user: dict = Depends(get_current_user)):
+async def me(user: dict = Depends(require_not_archived)):
     out = clean(user)
     if user.get("company_id"):
         comp = await db.companies.find_one({"_id": ObjectId(user["company_id"])})
@@ -251,57 +325,35 @@ async def me(user: dict = Depends(get_current_user)):
     return out
 
 
-async def _expire_trial(comp: dict) -> dict:
-    if comp.get("membership_status") != "trial":
-        return comp
-    ends = comp.get("trial_ends_at")
-    if ends and datetime.fromisoformat(ends) > datetime.now(timezone.utc):
-        comp["trial_days_left"] = max(1, (datetime.fromisoformat(ends) - datetime.now(timezone.utc)).days + 1)
-        return comp
-    await db.companies.update_one({"_id": comp["_id"]}, {"$set": {"membership_status": "expired", "plan": None}})
-    return {**comp, "membership_status": "expired", "plan": None}
-
-
-class TrialRedeem(BaseModel):
-    code: str
-
-
-@api.post("/membership/redeem-trial")
-async def redeem_trial(req: TrialRedeem, user: dict = Depends(require_role("owner"))):
-    valid = os.environ["TRIAL_CODE"]
-    days = int(os.environ["TRIAL_DAYS"])
-    if req.code.strip().upper() != valid.upper():
-        raise HTTPException(400, "Invalid trial code")
-    comp = await db.companies.find_one({"_id": ObjectId(user["company_id"])})
-    if comp.get("trial_used"):
-        raise HTTPException(400, "This company has already used its free trial")
-    if comp.get("membership_status") == "active":
-        raise HTTPException(400, "You already have an active membership")
-    ends = datetime.now(timezone.utc) + timedelta(days=days)
-    await db.companies.update_one({"_id": comp["_id"]}, {"$set": {
-        "plan": "medium", "membership_status": "trial", "trial_used": True,
-        "trial_started_at": now_iso(), "trial_ends_at": ends.isoformat()}})
-    await log_audit(user["company_id"], user, f"Redeemed {days}-day free trial code")
-    return {"ok": True, "plan": "medium", "trial_ends_at": ends.isoformat(), "days": days}
-
-
-# ---------- Generic CRUD factory for company-scoped resources ----------
 async def scope(user):
     return user["company_id"]
 
 
 class Job(BaseModel):
-    name: str
+    name: str = ""
     address: str = ""
     customer_name: str = ""
-    status: str = "active"  # active, behind, completed
-    due_date: Optional[str] = None
+    status: str = "active"  # active (auto on_time/late), completed
+    start_date: Optional[str] = None
+    completion_date: Optional[str] = None
     description: str = ""
     assigned_employees: List[str] = []
     assigned_vehicles: List[str] = []
     assigned_equipment: List[str] = []
-    material_cost: float = 0
-    onsite_purchases: float = 0
+
+
+def job_display(doc: dict) -> dict:
+    num = doc.get("job_number")
+    doc["name"] = f"#{num} – {doc.get('customer_name') or 'Customer'}" if num else doc.get("name", "")
+    if doc.get("status") != "completed":
+        cd = doc.get("completion_date")
+        doc["status"] = "late" if cd and cd < datetime.now(timezone.utc).strftime("%Y-%m-%d") else "on_time"
+    return doc
+
+
+async def next_job_number(cid: str) -> int:
+    res = await db.counters.find_one_and_update({"_id": f"job:{cid}"}, {"$inc": {"seq": 1}}, upsert=True, return_document=True)
+    return 1000 + res["seq"]
 
 
 class Employee(BaseModel):
@@ -317,8 +369,11 @@ class Employee(BaseModel):
 class Vehicle(BaseModel):
     name: str
     plate: str = ""
-    type: str = "Truck"
+    type: str = "Truck"  # Truck, Trailer, Large Vehicle
     status: str = "available"  # available, in-use
+    ownership: str = "own"  # own, rent (Large Vehicle)
+    rental_start_date: Optional[str] = None
+    rental_status: str = "in_use"  # in_use, returned
     oil_change_date: Optional[str] = None
     tire_rotation_date: Optional[str] = None
     registration_expiry: Optional[str] = None
@@ -329,14 +384,10 @@ class Vehicle(BaseModel):
 
 class Equipment(BaseModel):
     name: str
-    category: str = "General"
+    category: str = "Power Hand Tool"  # Power Hand Tool, Shop Tool, Vehicle Tool
     trade: str = "General"
     condition: str = ""
-    location: str = ""
-    status: str = "available"  # available, assigned
-    inspection_date: Optional[str] = None
-    service_reminder: Optional[str] = None
-    hours_used: float = 0
+    status: str = "available"  # available, servicing
     repair_history: List[dict] = []
 
 
@@ -344,11 +395,42 @@ class Estimate(BaseModel):
     customer_name: str
     customer_email: str = ""
     job_id: Optional[str] = None
-    line_items: List[dict] = []  # {desc, qty, unit_price}
+    line_items: List[dict] = []  # {section, desc, qty, unit_price}
     notes: str = ""
     photos: List[str] = []
     status: str = "draft"  # draft, sent, approved
     deposit_percent: float = 25
+    job_start_date: Optional[str] = None
+    num_payments: int = 2
+
+
+def _add_months(d: datetime, n: int) -> datetime:
+    m = d.month - 1 + n
+    y, m = d.year + m // 12, m % 12 + 1
+    last = (datetime(y + (m == 12), (m % 12) + 1, 1) - timedelta(days=1)).day
+    return d.replace(year=y, month=m, day=min(d.day, last))
+
+
+def payment_schedule(total: float, start: Optional[str], n: int) -> List[dict]:
+    n = max(1, min(int(n or 1), 12))
+    try:
+        base = datetime.strptime(start, "%Y-%m-%d") if start else datetime.now(timezone.utc).replace(tzinfo=None)
+    except ValueError:
+        base = datetime.now(timezone.utc).replace(tzinfo=None)
+    per = round(total / n, 2)
+    out = []
+    for i in range(n):
+        amt = round(total - per * (n - 1), 2) if i == n - 1 else per
+        out.append({"label": "Deposit" if i == 0 else f"Payment {i + 1}", "amount": amt,
+                    "due_date": _add_months(base, i).strftime("%Y-%m-%d")})
+    return out
+
+
+def deposit_amount(est: dict) -> float:
+    sched = est.get("payment_schedule") or []
+    if sched:
+        return round(float(sched[0].get("amount", 0)), 2)
+    return round(est.get("total", 0) * (est.get("deposit_percent", 25) or 0) / 100, 2)
 
 
 class MessageReq(BaseModel):
@@ -376,11 +458,12 @@ def _action_time(at: Optional[str]) -> datetime:
 
 def crud_router(name: str, collection: str, Model, create_roles=("owner", "foreman")):
     r = APIRouter()
+    post = job_display if collection == "jobs" else (lambda d: d)
 
     @r.get(f"/{name}")
-    async def list_items(user: dict = Depends(get_current_user)):
+    async def list_items(user: dict = Depends(require_not_archived)):
         items = await db[collection].find({"company_id": user["company_id"]}).sort("_id", -1).to_list(1000)
-        return [clean(i) for i in items]
+        return [post(clean(i)) for i in items]
 
     label = name[:-1] if name.endswith("s") else name
 
@@ -389,27 +472,40 @@ def crud_router(name: str, collection: str, Model, create_roles=("owner", "forem
         doc = payload.model_dump()
         doc["company_id"] = user["company_id"]
         doc["created_at"] = now_iso()
+        if collection == "jobs":
+            doc["job_number"] = await next_job_number(user["company_id"])
+            doc["name"] = f"#{doc['job_number']} – {doc.get('customer_name') or 'Customer'}"
+            if doc.get("status") != "completed":
+                doc["status"] = "active"
         res = await db[collection].insert_one(doc)
         doc["_id"] = res.inserted_id
         await log_audit(user["company_id"], user, f"Created {label}: {doc.get('name', '')}".strip())
-        return clean(doc)
+        return post(clean(doc))
 
     @r.get(f"/{name}/{{item_id}}")
-    async def get_item(item_id: str, user: dict = Depends(get_current_user)):
+    async def get_item(item_id: str, user: dict = Depends(require_not_archived)):
         item = await db[collection].find_one({"_id": _oid(item_id), "company_id": user["company_id"]})
         if not item:
             raise HTTPException(404, "Not found")
-        return clean(item)
+        return post(clean(item))
 
     @r.put(f"/{name}/{{item_id}}")
     async def update_item(item_id: str, payload: Model, user: dict = Depends(require_role(*create_roles))):
         doc = payload.model_dump(exclude_unset=True)
+        if collection == "jobs":
+            doc.pop("name", None)
+            if doc.get("status") not in (None, "completed"):
+                doc["status"] = "active"
+            if "customer_name" in doc:
+                cur = await db[collection].find_one({"_id": _oid(item_id), "company_id": user["company_id"]}, {"job_number": 1})
+                if cur and cur.get("job_number"):
+                    doc["name"] = f"#{cur['job_number']} – {doc['customer_name'] or 'Customer'}"
         await db[collection].update_one({"_id": _oid(item_id), "company_id": user["company_id"]}, {"$set": doc})
         item = await db[collection].find_one({"_id": _oid(item_id), "company_id": user["company_id"]})
         if not item:
             raise HTTPException(404, "Not found")
-        await log_audit(user["company_id"], user, f"Updated {label}: {doc.get('name', '')}".strip())
-        return clean(item)
+        await log_audit(user["company_id"], user, f"Updated {label}: {item.get('name', '')}".strip())
+        return post(clean(item))
 
     @r.delete(f"/{name}/{{item_id}}")
     async def delete_item(item_id: str, user: dict = Depends(require_role("owner"))):
@@ -485,7 +581,7 @@ class ScheduleEntry(BaseModel):
 
 
 @api.get("/schedule")
-async def list_schedule(start: str = Query(...), end: str = Query(...), user: dict = Depends(get_current_user)):
+async def list_schedule(start: str = Query(...), end: str = Query(...), user: dict = Depends(require_not_archived)):
     cid = user["company_id"]
     rows = await db.schedule.find({"company_id": cid, "date": {"$gte": _valid_date(start), "$lte": _valid_date(end)}}).sort("date", 1).to_list(2000)
     return [clean(r) for r in rows]
@@ -529,7 +625,7 @@ async def delete_schedule(entry_id: str, user: dict = Depends(require_role("owne
 
 # ---------- Estimates (custom for email) ----------
 @api.get("/estimates")
-async def list_estimates(user: dict = Depends(get_current_user)):
+async def list_estimates(user: dict = Depends(require_not_archived)):
     items = await db.estimates.find({"company_id": user["company_id"]}).sort("_id", -1).to_list(1000)
     return [clean(i) for i in items]
 
@@ -539,6 +635,7 @@ async def create_estimate(payload: Estimate, user: dict = Depends(require_role("
     doc = payload.model_dump()
     doc["company_id"] = user["company_id"]
     doc["total"] = sum(li.get("qty", 1) * li.get("unit_price", 0) for li in payload.line_items)
+    doc["payment_schedule"] = payment_schedule(doc["total"], payload.job_start_date, payload.num_payments)
     doc["created_at"] = now_iso()
     res = await db.estimates.insert_one(doc)
     doc["_id"] = res.inserted_id
@@ -551,6 +648,7 @@ async def update_estimate(item_id: str, payload: Estimate, user: dict = Depends(
     doc = payload.model_dump()
     doc.pop("status", None)
     doc["total"] = sum(li.get("qty", 1) * li.get("unit_price", 0) for li in payload.line_items)
+    doc["payment_schedule"] = payment_schedule(doc["total"], payload.job_start_date, payload.num_payments)
     await db.estimates.update_one({"_id": _oid(item_id), "company_id": user["company_id"]}, {"$set": doc})
     item = await db.estimates.find_one({"_id": _oid(item_id), "company_id": user["company_id"]})
     if not item:
@@ -576,7 +674,7 @@ async def send_estimate(item_id: str, user: dict = Depends(require_role("owner",
     if not est.get("public_token"):
         await db.estimates.update_one({"_id": est["_id"]}, {"$set": {"public_token": token}})
     link = f"{FRONTEND_URL}/estimate/{token}"
-    deposit = round(est.get("total", 0) * (est.get("deposit_percent", 25) or 0) / 100, 2)
+    deposit = deposit_amount(est)
     rows = "".join(
         f"<tr><td style='padding:8px;border-bottom:1px solid #eee'>{escape(str(li.get('desc','')))}</td>"
         f"<td style='padding:8px;border-bottom:1px solid #eee;text-align:center'>{li.get('qty',1)}</td>"
@@ -614,10 +712,10 @@ def _public_estimate(est: dict, comp: dict) -> dict:
     return {
         "company_name": comp.get("name", ""), "customer_name": est.get("customer_name", ""),
         "line_items": est.get("line_items", []), "notes": est.get("notes", ""), "total": total,
-        "status": est.get("status", "sent"), "deposit_percent": pct, "deposit_amount": round(total * pct / 100, 2),
+        "status": est.get("status", "sent"), "deposit_percent": pct, "deposit_amount": deposit_amount(est),
         "approved_at": est.get("approved_at"), "signature_name": est.get("signature_name"),
         "deposit_paid": bool(est.get("deposit_paid")), "deposit_paid_at": est.get("deposit_paid_at"),
-        "created_at": est.get("created_at"),
+        "created_at": est.get("created_at"), "payment_schedule": est.get("payment_schedule", []),
     }
 
 
@@ -699,7 +797,7 @@ async def send_approval_emails(est: dict, comp: dict, token: str):
     pdf_b64 = base64.b64encode(build_estimate_pdf(est, comp)).decode()
     attachment = [{"filename": f"estimate-{str(est['_id'])[-6:].upper()}-signed.pdf", "content": pdf_b64}]
     link = f"{FRONTEND_URL}/estimate/{token}"
-    deposit = round(est.get("total", 0) * (est.get("deposit_percent", 25) or 0) / 100, 2)
+    deposit = deposit_amount(est)
     subject = f"Signed estimate from {comp.get('name','Hub Trade')} — ${est.get('total',0):,.2f}"
     sends = []
     if est.get("customer_email"):
@@ -729,7 +827,7 @@ async def estimate_deposit_checkout(token: str, req: DepositReq):
         raise HTTPException(400, "Approve the estimate before paying the deposit")
     if est.get("deposit_paid"):
         raise HTTPException(400, "Deposit already paid")
-    amount = round(est.get("total", 0) * (est.get("deposit_percent", 25) or 0) / 100, 2)
+    amount = deposit_amount(est)
     if amount <= 0:
         raise HTTPException(400, "No deposit required for this estimate")
     session = stripe.checkout.Session.create(
@@ -760,7 +858,8 @@ async def _fulfil_payment(rec: dict):
             await log_audit(rec["company_id"], None, f"Deposit ${rec['amount']:,.2f} paid on estimate for {est.get('customer_name','')}")
         return
     await db.companies.update_one({"_id": ObjectId(rec["company_id"])},
-                                  {"$set": {"plan": rec["plan"], "membership_status": "active", "membership_since": now_iso()}})
+                                  {"$set": {"plan": rec["plan"], "membership_status": "active", "membership_since": now_iso()},
+                                   "$unset": {"archived_at": "", "trial_ended_email_sent": ""}})
 
 
 _SHORTENERS = ("bit.ly", "tinyurl.com", "t.co", "is.gd", "cutt.ly", "goo.gl", "rebrand.ly")
@@ -846,7 +945,7 @@ async def _post_email(payload: dict) -> None:
 
 
 # ---------- Trial reminder cron ----------
-TRIAL_REMINDER_DAYS = 2
+TRIAL_REMINDER_DAYS = int(os.environ.get("TRIAL_REMINDER_DAYS", "5"))
 
 
 def _trial_reminder_html(owner_name: str, company_name: str, ends: datetime) -> str:
@@ -859,7 +958,7 @@ def _trial_reminder_html(owner_name: str, company_name: str, ends: datetime) -> 
       <p>The free trial for <b>{escape(company_name)}</b> ends on <b>{ends.strftime('%B %d, %Y')}</b>.
       Keep your jobs, crew, equipment and time cards running without interruption by choosing a plan now.</p>
       <p style='margin:28px 0'><a href='{link}' style='background:#FF3B30;color:#fff;padding:14px 24px;border-radius:6px;text-decoration:none;font-weight:bold'>Upgrade my plan</a></p>
-      <p style='color:#555;font-size:13px'>Plans start at $60/mo, billed every 6 months. Your data is kept safe either way.</p>
+      <p style='color:#555;font-size:13px'>Plans start at $60/mo, billed monthly. Your data is kept safe either way.</p>
       <p style='color:#888;font-size:12px'>Sent by {escape(EMAIL_FROM_NAME)}. We never ask for your password or card details by email.</p>
       </td></tr>
     </table>"""
@@ -872,10 +971,11 @@ def _trial_ended_html(owner_name: str, company_name: str) -> str:
       <tr><td style='padding:24px'>
       <h2 style='color:#FF3B30;margin:0 0 12px'>Your Hub Trade trial has ended</h2>
       <p>Hi {escape(owner_name)},</p>
-      <p>The free trial for <b>{escape(company_name)}</b> ended today. Your jobs, crew, equipment, estimates and
-      time cards are all saved — pick a plan to reactivate your workspace in one tap.</p>
+      <p>The {TRIAL_DAYS}-day free trial for <b>{escape(company_name)}</b> ended today, so the account is now <b>archived</b>.
+      Your jobs, crew, equipment, estimates and time cards are saved for <b>{ARCHIVE_GRACE_DAYS} more days</b> —
+      pick a plan before then to reactivate everything in one tap. After that the account and its data are permanently removed.</p>
       <p style='margin:28px 0'><a href='{link}' style='background:#FF3B30;color:#fff;padding:14px 24px;border-radius:6px;text-decoration:none;font-weight:bold'>Reactivate my workspace</a></p>
-      <p style='color:#555;font-size:13px'>Plans start at $60/mo, billed every 6 months.</p>
+      <p style='color:#555;font-size:13px'>Plans start at $60/mo, billed monthly.</p>
       <p style='color:#888;font-size:12px'>Sent by {escape(EMAIL_FROM_NAME)}. We never ask for your password or card details by email.</p>
       </td></tr>
     </table>"""
@@ -910,20 +1010,43 @@ async def run_trial_reminders() -> int:
 
 async def run_trial_ended() -> int:
     now = datetime.now(timezone.utc)
-    comps = await db.companies.find({"membership_status": {"$in": ["trial", "expired"]}, "trial_ended_email_sent": {"$ne": True},
+    comps = await db.companies.find({"membership_status": {"$in": ["trial", "archived"]}, "trial_ended_email_sent": {"$ne": True},
                                      "trial_ends_at": {"$lte": now.isoformat()}}).to_list(500)
     sent = 0
     for comp in comps:
-        await db.companies.update_one({"_id": comp["_id"]}, {"$set": {"membership_status": "expired", "plan": None,
-                                                                      "trial_ended_email_sent": True, "trial_ended_email_sent_at": now_iso()}})
+        upd = {"membership_status": "archived", "plan": None, "trial_ended_email_sent": True, "trial_ended_email_sent_at": now_iso()}
+        if not comp.get("archived_at"):
+            upd["archived_at"] = now_iso()
+        await db.companies.update_one({"_id": comp["_id"]}, {"$set": upd})
         sent += await _email_owners(comp, "Your Hub Trade free trial has ended", lambda n, c=comp: _trial_ended_html(n, c.get("name", "")))
     logger.info(f"trial ended emails sent: {sent}")
     return sent
 
 
+PURGE_COLLECTIONS = ("jobs", "employees", "vehicles", "equipment", "estimates", "timecards", "schedule",
+                     "notifications", "audit_logs", "data_entry_tickets", "files", "payment_transactions")
+
+
+async def run_purge_archived() -> int:
+    # Removes companies archived for ARCHIVE_GRACE_DAYS+ days that never paid (explicit trial policy).
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=ARCHIVE_GRACE_DAYS)).isoformat()
+    comps = await db.companies.find({"membership_status": "archived", "archived_at": {"$lte": cutoff}}).to_list(200)
+    removed = 0
+    for comp in comps:
+        cid = str(comp["_id"])
+        for coll in PURGE_COLLECTIONS:
+            await db[coll].delete_many({"company_id": cid})
+        await db.users.delete_many({"company_id": cid, "is_superadmin": {"$ne": True}})
+        await db.companies.delete_one({"_id": comp["_id"], "membership_status": "archived"})
+        removed += 1
+        logger.info(f"purged archived company {cid} ({comp.get('name','')})")
+    return removed
+
+
 async def run_trial_jobs():
     await run_trial_reminders()
     await run_trial_ended()
+    await run_purge_archived()
 
 
 @api.post("/cron/trial-reminders")
@@ -947,7 +1070,7 @@ MAX_UPLOAD_BYTES = 10 * 1024 * 1024
 
 
 @api.post("/upload")
-async def upload(file: UploadFile = File(...), user: dict = Depends(get_current_user)):
+async def upload(file: UploadFile = File(...), user: dict = Depends(require_not_archived)):
     ct = (file.content_type or "").lower()
     if ct not in ALLOWED_UPLOAD_TYPES:
         raise HTTPException(400, "Only JPG, PNG, WEBP, GIF, HEIC images and PDF files are allowed")
@@ -963,21 +1086,16 @@ async def upload(file: UploadFile = File(...), user: dict = Depends(get_current_
 
 
 @api.get("/files/{path:path}")
-async def download_file(path: str, user: dict = Depends(get_current_user)):
+async def download_file(path: str, user: dict = Depends(require_not_archived)):
     record = await db.files.find_one({"storage_path": path, "company_id": user["company_id"], "is_deleted": False})
     if not record:
         raise HTTPException(404, "File not found")
-    data, _ = get_object(path)
-    ct = record.get("content_type") if record.get("content_type") in ALLOWED_UPLOAD_TYPES else "application/octet-stream"
-    disposition = "inline" if ct.startswith("image/") else "attachment"
-    return StarletteResponse(content=data, media_type=ct, headers={
-        "X-Content-Type-Options": "nosniff", "Content-Disposition": f'{disposition}; filename="{path.rsplit("/", 1)[-1]}"',
-        "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox"})
+    return _serve_file(record, path)
 
 
 # ---------- Time cards ----------
 @api.post("/timecards/clock-in")
-async def clock_in(req: TimeCardAction, user: dict = Depends(get_current_user)):
+async def clock_in(req: TimeCardAction, user: dict = Depends(require_not_archived)):
     existing = await db.timecards.find_one({"employee_id": req.employee_id, "company_id": user["company_id"], "clock_out": None})
     if existing:
         raise HTTPException(400, "Already clocked in")
@@ -991,7 +1109,7 @@ async def clock_in(req: TimeCardAction, user: dict = Depends(get_current_user)):
 
 
 @api.post("/timecards/clock-out")
-async def clock_out(req: TimeCardAction, user: dict = Depends(get_current_user)):
+async def clock_out(req: TimeCardAction, user: dict = Depends(require_not_archived)):
     tc = await db.timecards.find_one({"employee_id": req.employee_id, "company_id": user["company_id"], "clock_out": None})
     if not tc:
         raise HTTPException(400, "Not clocked in")
@@ -1006,7 +1124,7 @@ async def clock_out(req: TimeCardAction, user: dict = Depends(get_current_user))
 
 
 @api.get("/timecards")
-async def list_timecards(user: dict = Depends(get_current_user)):
+async def list_timecards(user: dict = Depends(require_not_archived)):
     items = await db.timecards.find({"company_id": user["company_id"]}).sort("_id", -1).to_list(1000)
     return [clean(i) for i in items]
 
@@ -1018,7 +1136,7 @@ class JobPhoto(BaseModel):
 
 
 @api.post("/jobs/{job_id}/photos")
-async def add_job_photo(job_id: str, req: JobPhoto, user: dict = Depends(get_current_user)):
+async def add_job_photo(job_id: str, req: JobPhoto, user: dict = Depends(require_not_archived)):
     job = await db.jobs.find_one({"_id": _oid(job_id), "company_id": user["company_id"]}, {"name": 1})
     if not job:
         raise HTTPException(404, "Job not found")
@@ -1030,14 +1148,14 @@ async def add_job_photo(job_id: str, req: JobPhoto, user: dict = Depends(get_cur
 
 
 @api.get("/timecards/active")
-async def active_timecards(user: dict = Depends(get_current_user)):
+async def active_timecards(user: dict = Depends(require_not_archived)):
     items = await db.timecards.find({"company_id": user["company_id"], "clock_out": None}).to_list(1000)
     return [clean(i) for i in items]
 
 
 # ---------- Messages ----------
 @api.get("/messages")
-async def list_messages(job_id: Optional[str] = None, user: dict = Depends(get_current_user)):
+async def list_messages(job_id: Optional[str] = None, user: dict = Depends(require_not_archived)):
     q = {"company_id": user["company_id"]}
     if job_id:
         q["job_id"] = job_id
@@ -1046,7 +1164,7 @@ async def list_messages(job_id: Optional[str] = None, user: dict = Depends(get_c
 
 
 @api.post("/messages")
-async def post_message(req: MessageReq, user: dict = Depends(get_current_user)):
+async def post_message(req: MessageReq, user: dict = Depends(require_not_archived)):
     doc = {"text": req.text, "job_id": req.job_id, "company_id": user["company_id"],
            "author_name": user["name"], "author_role": user["role"], "created_at": now_iso()}
     res = await db.messages.insert_one(doc)
@@ -1076,13 +1194,14 @@ async def _data_entry_summary(cid: str) -> dict:
 
 
 @api.get("/dashboard")
-async def dashboard(user: dict = Depends(get_current_user)):
+async def dashboard(user: dict = Depends(require_not_archived)):
     cid = user["company_id"]
-    active_jobs = await db.jobs.find({"company_id": cid, "status": "active"}).sort("_id", -1).to_list(6)
+    active_jobs = [job_display(clean(j)) for j in await db.jobs.find({"company_id": cid, "status": "active"}).sort("_id", -1).to_list(6)]
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     active_tcs = await db.timecards.find({"company_id": cid, "clock_out": None}, {"employee_id": 1}).to_list(1000)
     return {
         "active_jobs": await _count("jobs", cid, status="active"),
-        "jobs_behind": await _count("jobs", cid, status="behind"),
+        "jobs_behind": await db.jobs.count_documents({"company_id": cid, "status": "active", "completion_date": {"$lt": today, "$ne": None}}),
         "completed_jobs": await _count("jobs", cid, status="completed"),
         "clocked_in": len(active_tcs),
         "clocked_in_ids": [t["employee_id"] for t in active_tcs],
@@ -1092,14 +1211,14 @@ async def dashboard(user: dict = Depends(get_current_user)):
         "total_equipment": await _count("equipment", cid),
         "total_employees": await _count("employees", cid),
         "upcoming_estimates": await _count("estimates", cid, status="draft"),
-        "active_jobs_list": [clean(j) for j in active_jobs],
+        "active_jobs_list": active_jobs,
         "unread_notifications": await _count("notifications", cid, read=False),
         **(await _data_entry_summary(cid)),
     }
 
 
 @api.get("/reports/weekly")
-async def weekly_report(user: dict = Depends(get_current_user)):
+async def weekly_report(user: dict = Depends(require_not_archived)):
     cid = user["company_id"]
     week_ago = datetime.now(timezone.utc) - timedelta(days=7)
     tcs = await db.timecards.find(
@@ -1130,7 +1249,7 @@ async def _sum_field(coll, cid: str, field: str) -> float:
 
 
 @api.get("/jobs/{job_id}/cost")
-async def job_cost(job_id: str, user: dict = Depends(get_current_user)):
+async def job_cost(job_id: str, user: dict = Depends(require_not_archived)):
     job = await db.jobs.find_one({"_id": ObjectId(job_id), "company_id": user["company_id"]})
     if not job:
         raise HTTPException(404, "Job not found")
@@ -1147,14 +1266,24 @@ async def job_cost(job_id: str, user: dict = Depends(get_current_user)):
 
 # ---------- Team members (create foreman/employee accounts) ----------
 class TeamMemberReq(BaseModel):
-    email: EmailStr
-    password: str
+    email: Optional[str] = None
+    password: Optional[str] = None
     name: str
     role: str  # foreman or employee
 
 
+def _gen_username(name: str, cid: str) -> str:
+    base = re.sub(r"[^a-z0-9]", "", name.lower()) or "user"
+    return f"{base[:12]}{secrets.randbelow(9000) + 1000}@{cid[-6:]}.hubtrade"
+
+
+def _gen_password() -> str:
+    alphabet = "abcdefghjkmnpqrstuvwxyzABCDEFGHJKMNPQRSTUVWXYZ23456789"
+    return "".join(secrets.choice(alphabet) for _ in range(10))
+
+
 @api.get("/team")
-async def list_team(user: dict = Depends(get_current_user)):
+async def list_team(user: dict = Depends(require_not_archived)):
     members = await db.users.find({"company_id": user["company_id"]}).to_list(1000)
     return [clean(m) for m in members]
 
@@ -1163,15 +1292,20 @@ async def list_team(user: dict = Depends(get_current_user)):
 async def add_team(req: TeamMemberReq, user: dict = Depends(require_role("owner"))):
     if req.role not in ("owner", "foreman", "employee"):
         raise HTTPException(400, "Invalid role")
-    email = req.email.lower()
-    if await db.users.find_one({"email": email}):
-        raise HTTPException(400, "Email already registered")
-    doc = {"email": email, "password_hash": hash_password(req.password), "name": req.name,
+    email = (req.email or "").strip().lower() or _gen_username(req.name, user["company_id"])
+    while await db.users.find_one({"email": email}):
+        if req.email:
+            raise HTTPException(400, "Email already registered")
+        email = _gen_username(req.name, user["company_id"])
+    password = req.password or _gen_password()
+    doc = {"email": email, "password_hash": hash_password(password), "name": req.name,
            "role": req.role, "company_id": user["company_id"], "created_at": now_iso()}
     res = await db.users.insert_one(doc)
     doc["_id"] = res.inserted_id
     await log_audit(user["company_id"], user, f"Added team member {req.name} ({req.role})")
-    return clean(doc)
+    out = clean(doc)
+    out["credentials"] = {"username": email, "password": password}
+    return out
 
 
 class RoleUpdateReq(BaseModel):
@@ -1214,24 +1348,93 @@ class DataEntryTicketReq(BaseModel):
     priority: str = "normal"  # low, normal, high
     description: str = ""
     hours_requested: float = 0
+    attachments: List[dict] = []  # {path, name, content_type, size}
+
+
+TICKET_FILE_TYPES = {
+    **{t: t.split("/")[-1].replace("jpeg", "jpg") for t in ("image/jpeg", "image/png", "image/webp", "image/gif", "image/heic")},
+    "application/pdf": "pdf", "text/csv": "csv", "text/plain": "txt",
+    "application/vnd.ms-excel": "xls",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": "xlsx",
+    "application/msword": "doc",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "docx",
+}
+TICKET_FILE_EXTS = {v: k for k, v in TICKET_FILE_TYPES.items()}
+
+
+@api.post("/data-entry-tickets/upload")
+async def ticket_upload(file: UploadFile = File(...), user: dict = Depends(require_not_archived)):
+    ext = (file.filename or "").rsplit(".", 1)[-1].lower() if "." in (file.filename or "") else ""
+    ext = "jpg" if ext == "jpeg" else ext
+    ct = (file.content_type or "").lower()
+    if ct not in TICKET_FILE_TYPES:
+        ct = TICKET_FILE_EXTS.get(ext)
+    if not ct:
+        raise HTTPException(400, "Allowed: images, PDF, CSV, TXT, XLS/XLSX, DOC/DOCX")
+    data = await file.read()
+    if len(data) > MAX_UPLOAD_BYTES:
+        raise HTTPException(413, "File too large (max 10 MB)")
+    path = f"{APP_NAME}/{user['company_id']}/tickets/{uuid.uuid4()}.{TICKET_FILE_TYPES[ct]}"
+    result = put_object(path, data, ct)
+    await db.files.insert_one({"storage_path": result["path"], "content_type": ct, "original_name": file.filename,
+                               "company_id": user["company_id"], "is_deleted": False, "created_at": now_iso()})
+    return {"path": result["path"], "name": file.filename, "content_type": ct, "size": len(data)}
+
+
+def _serve_file(record: dict, path: str):
+    data, _ = get_object(path)
+    ct = record.get("content_type") or "application/octet-stream"
+    disposition = "inline" if ct.startswith("image/") or ct == "application/pdf" else "attachment"
+    fname = record.get("original_name") or path.rsplit("/", 1)[-1]
+    return StarletteResponse(content=data, media_type=ct, headers={
+        "X-Content-Type-Options": "nosniff", "Content-Disposition": f'{disposition}; filename="{fname}"',
+        "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox"})
+
+
+class TicketMessageReq(BaseModel):
+    body: str
+    attachments: List[dict] = []
+
+
+def _message(author: str, role: str, body: str, attachments: list) -> dict:
+    return {"id": str(uuid.uuid4()), "author": author, "author_role": role, "body": body.strip(),
+            "attachments": attachments or [], "created_at": now_iso()}
+
+
+async def _append_message(ticket: dict, msg: dict, notify_company: bool):
+    await db.data_entry_tickets.update_one({"_id": ticket["_id"]}, {"$push": {"messages": msg}, "$set": {"updated_at": msg["created_at"]}})
+    if notify_company:
+        await create_notification(ticket["company_id"], f'New reply on ticket "{ticket.get("title")}" from the data-entry team.', str(ticket["_id"]))
+    return clean(await db.data_entry_tickets.find_one({"_id": ticket["_id"]}))
+
+
+@api.post("/data-entry-tickets/{ticket_id}/messages")
+async def ticket_reply(ticket_id: str, req: TicketMessageReq, user: dict = Depends(require_not_archived)):
+    t = await db.data_entry_tickets.find_one({"_id": _oid(ticket_id), "company_id": user["company_id"]})
+    if not t:
+        raise HTTPException(404, "Ticket not found")
+    if not req.body.strip() and not req.attachments:
+        raise HTTPException(400, "Message is empty")
+    return await _append_message(t, _message(user["name"], "owner", req.body, req.attachments), False)
 
 
 @api.get("/data-entry-tickets")
-async def list_tickets(user: dict = Depends(get_current_user)):
+async def list_tickets(user: dict = Depends(require_not_archived)):
     items = await db.data_entry_tickets.find({"company_id": user["company_id"]}).sort("_id", -1).to_list(1000)
     return [clean(i) for i in items]
 
 
 @api.post("/data-entry-tickets")
-async def create_ticket(req: DataEntryTicketReq, user: dict = Depends(get_current_user)):
+async def create_ticket(req: DataEntryTicketReq, user: dict = Depends(require_not_archived)):
     comp = await db.companies.find_one({"_id": ObjectId(user["company_id"])})
     doc = {**req.model_dump(), "company_id": user["company_id"],
            "company_name": comp.get("name") if comp else "",
            "created_by": user["name"], "created_by_id": str(user["_id"]),
-           "status": "open", "admin_notes": "", "created_at": now_iso()}
+           "status": "open", "admin_notes": "", "messages": [], "created_at": now_iso()}
     res = await db.data_entry_tickets.insert_one(doc)
     doc["_id"] = res.inserted_id
     await log_audit(user["company_id"], user, f"Submitted data-entry ticket: {req.title}")
+    asyncio.create_task(push_admin_control("ticket.created", _ticket_out(dict(doc))))
     return clean(doc)
 
 
@@ -1254,11 +1457,15 @@ async def admin_update_ticket(ticket_id: str, req: AdminTicketUpdate, user: dict
         raise HTTPException(404, "Ticket not found")
     upd = {k: v for k, v in req.model_dump().items() if v is not None}
     upd["updated_at"] = now_iso()
+    note_changed = bool(upd.get("admin_notes")) and upd["admin_notes"] != existing.get("admin_notes", "")
+    if note_changed:
+        upd_msg = _message(user.get("name") or "Data-entry team", "admin", upd["admin_notes"], [])
+        await db.data_entry_tickets.update_one({"_id": ObjectId(ticket_id)}, {"$push": {"messages": upd_msg}})
     await db.data_entry_tickets.update_one({"_id": ObjectId(ticket_id)}, {"$set": upd})
     parts = []
     if upd.get("status") and upd["status"] != existing.get("status"):
         parts.append(f"marked {upd['status'].replace('_', ' ')}")
-    if upd.get("admin_notes") and upd["admin_notes"] != existing.get("admin_notes", ""):
+    if note_changed:
         parts.append("a note was added by the data-entry team")
     if parts:
         await create_notification(existing["company_id"],
@@ -1268,14 +1475,127 @@ async def admin_update_ticket(ticket_id: str, req: AdminTicketUpdate, user: dict
     return clean(item)
 
 
+@api.post("/admin/data-entry-tickets/{ticket_id}/messages")
+async def admin_ticket_reply(ticket_id: str, req: TicketMessageReq, user: dict = Depends(require_superadmin)):
+    t = await db.data_entry_tickets.find_one({"_id": _oid(ticket_id)})
+    if not t:
+        raise HTTPException(404, "Ticket not found")
+    if not req.body.strip():
+        raise HTTPException(400, "Message is empty")
+    return await _append_message(t, _message(user.get("name") or "Data-entry team", "admin", req.body, req.attachments), True)
+
+
+@api.get("/admin/files/{path:path}")
+async def admin_download_file(path: str, user: dict = Depends(require_superadmin)):
+    record = await db.files.find_one({"storage_path": path, "is_deleted": False})
+    if not record:
+        raise HTTPException(404, "File not found")
+    return _serve_file(record, path)
+
+
+# ---------- Integration API (Admin Control, API-key protected) ----------
+INTEGRATION_API_KEY = os.environ.get("INTEGRATION_API_KEY")
+
+
+async def require_integration_key(x_api_key: str = Header(None), authorization: str = Header(None)):
+    supplied = x_api_key or (authorization[7:].strip() if authorization and authorization.lower().startswith("bearer ") else None)
+    if not INTEGRATION_API_KEY or not supplied or not secrets.compare_digest(supplied, INTEGRATION_API_KEY):
+        raise HTTPException(401, "Invalid API key")
+
+
+def _ticket_out(t: dict) -> dict:
+    t = clean(t) if "_id" in t else t
+    t["ticket_id"] = t["id"]
+    return t
+
+
+@api.get("/integration/clients", dependencies=[Depends(require_integration_key)])
+async def integration_clients(scope: str = Query("all")):
+    tickets = await db.data_entry_tickets.find({}).sort("_id", -1).to_list(5000)
+    by_user: dict = {}
+    for t in tickets:
+        uid = t.get("created_by_id")
+        if not uid:
+            continue
+        c = by_user.setdefault(uid, {"ticket_count": 0, "open_tickets": 0, "last_ticket_at": t.get("created_at")})
+        c["ticket_count"] += 1
+        if t.get("status") == "open":
+            c["open_tickets"] += 1
+    if scope == "ticket_creators":
+        if not by_user:
+            return []
+        uq = {"_id": {"$in": [ObjectId(u) for u in by_user if ObjectId.is_valid(u)]}}
+    else:
+        uq = {"is_tester": {"$ne": True}}
+    users = await db.users.find(uq).sort("_id", -1).to_list(10000)
+    comps = {str(c["_id"]): c for c in await db.companies.find({"_id": {"$in": [ObjectId(u["company_id"]) for u in users if ObjectId.is_valid(u.get("company_id", ""))]}}).to_list(10000)}
+    counts = {g["_id"]: g["n"] for g in await db.users.aggregate([{"$group": {"_id": "$company_id", "n": {"$sum": 1}}}]).to_list(10000)}
+    return [client_record(u, comps.get(u.get("company_id"), {}), counts.get(u.get("company_id"), 0), by_user.get(str(u["_id"]))) for u in users]
+
+
+@api.get("/integration/health", dependencies=[Depends(require_integration_key)])
+async def integration_health():
+    return {"ok": True, "users": await db.users.count_documents({}), "companies": await db.companies.count_documents({}),
+            "tickets": await db.data_entry_tickets.count_documents({})}
+
+
+@api.get("/integration/tickets", dependencies=[Depends(require_integration_key)])
+async def integration_tickets(since: Optional[str] = Query(None), status: Optional[str] = Query(None)):
+    q: dict = {}
+    if since:
+        q["$or"] = [{"created_at": {"$gte": since}}, {"updated_at": {"$gte": since}}]
+    if status:
+        q["status"] = status
+    items = await db.data_entry_tickets.find(q).sort("_id", -1).to_list(5000)
+    return [_ticket_out(t) for t in items]
+
+
+@api.get("/integration/tickets/{ticket_id}", dependencies=[Depends(require_integration_key)])
+async def integration_ticket(ticket_id: str):
+    t = await db.data_entry_tickets.find_one({"_id": _oid(ticket_id)})
+    if not t:
+        raise HTTPException(404, "Ticket not found")
+    return _ticket_out(t)
+
+
+@api.put("/integration/tickets/{ticket_id}", dependencies=[Depends(require_integration_key)])
+async def integration_update_ticket(ticket_id: str, req: AdminTicketUpdate):
+    if req.status and req.status not in ("open", "in_progress", "completed", "closed"):
+        raise HTTPException(400, "status must be open, in_progress, completed or closed")
+    system = {"_id": "admin-control", "name": "Admin Control", "email": "admin-control", "role": "superadmin"}
+    return await admin_update_ticket(ticket_id, req, system)
+
+
+class IntegrationMessageReq(TicketMessageReq):
+    author: str = "Admin Control"
+
+
+@api.post("/integration/tickets/{ticket_id}/messages", dependencies=[Depends(require_integration_key)])
+async def integration_ticket_reply(ticket_id: str, req: IntegrationMessageReq):
+    t = await db.data_entry_tickets.find_one({"_id": _oid(ticket_id)})
+    if not t:
+        raise HTTPException(404, "Ticket not found")
+    if not req.body.strip():
+        raise HTTPException(400, "Message is empty")
+    return _ticket_out(await _append_message(t, _message(req.author, "admin", req.body, req.attachments), True))
+
+
+@api.get("/integration/files/{path:path}", dependencies=[Depends(require_integration_key)])
+async def integration_download_file(path: str):
+    record = await db.files.find_one({"storage_path": path, "is_deleted": False})
+    if not record:
+        raise HTTPException(404, "File not found")
+    return _serve_file(record, path)
+
+
 @api.get("/notifications")
-async def list_notifications(user: dict = Depends(get_current_user)):
+async def list_notifications(user: dict = Depends(require_not_archived)):
     items = await db.notifications.find({"company_id": user["company_id"]}).sort("_id", -1).limit(50).to_list(50)
     return [clean(i) for i in items]
 
 
 @api.post("/notifications/{nid}/read")
-async def read_notification(nid: str, user: dict = Depends(get_current_user)):
+async def read_notification(nid: str, user: dict = Depends(require_not_archived)):
     try:
         oid = ObjectId(nid)
     except Exception:
@@ -1285,7 +1605,7 @@ async def read_notification(nid: str, user: dict = Depends(get_current_user)):
 
 
 @api.post("/notifications/read-all")
-async def read_all_notifications(user: dict = Depends(get_current_user)):
+async def read_all_notifications(user: dict = Depends(require_not_archived)):
     await db.notifications.update_many({"company_id": user["company_id"], "read": False}, {"$set": {"read": True}})
     return {"status": "ok"}
 
@@ -1412,7 +1732,38 @@ async def stripe_webhook(request: Request):
             {"$set": {"status": "completed", "payment_status": obj.get("payment_status", "paid"), "updated_at": now_iso()}})
         if rec:
             await _fulfil_payment(rec)
+        else:
+            await _fulfil_payment_link(obj)
     return {"status": "ok"}
+
+
+async def _fulfil_payment_link(session: dict):
+    # Static Stripe Payment Links create no local record: match the payer's email to an owner and infer the plan.
+    email = ((session.get("customer_details") or {}).get("email") or session.get("customer_email") or "").lower()
+    if not email:
+        return
+    owner = await db.users.find_one({"email": email, "role": "owner"})
+    if not owner:
+        return
+    amount = (session.get("amount_total") or 0) / 100
+    plan = next((k for k, v in PLAN_LIMITS.items() if abs(v["monthly"] - amount) < 0.01), None)
+    if not plan:
+        try:
+            items = stripe.checkout.Session.list_line_items(session["id"], limit=1).data
+            lk = (items[0].price.lookup_key or "") if items else ""
+            plan = next((k for k, v in PLAN_LIMITS.items() if v["lookup_key"] == lk), None)
+        except stripe.error.StripeError:
+            plan = None
+    if not plan:
+        logger.warning(f"payment link session {session.get('id')} for {email}: could not infer plan")
+        return
+    await db.payment_transactions.insert_one({"session_id": session["id"], "kind": "subscription", "plan": plan, "company_id": owner["company_id"],
+                                              "amount": amount, "currency": session.get("currency", "usd"), "status": "completed",
+                                              "payment_status": "paid", "source": "payment_link", "created_at": now_iso(), "updated_at": now_iso()})
+    await db.companies.update_one({"_id": ObjectId(owner["company_id"])},
+                                  {"$set": {"plan": plan, "membership_status": "active", "membership_since": now_iso()},
+                                   "$unset": {"archived_at": "", "trial_ended_email_sent": ""}})
+    await log_audit(owner["company_id"], owner, f"Membership activated via payment link: {plan}")
 
 
 app.include_router(api)

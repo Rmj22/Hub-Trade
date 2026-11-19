@@ -61,3 +61,23 @@
 
 ## 2026-06 iOS black screen fix
 - Cause: www.trademainhub.com 308→trademainhub.com; limitsNavigationsToAppBoundDomains=true without WKAppBoundDomains blocked navigation, webview stuck on local placeholder. Fix: server.url=https://trademainhub.com, WKAppBoundDomains added to Info.plist (trademainhub.com, www, stripe), placeholder index.html now auto-redirects to app URL with retry/offline message. Requires rebuilding the .ipa.
+
+## 2026-06 Pricing copy
+- All "billed every 6 months" copy → "Billed monthly" (Landing.js, Membership.js, server.py trial emails). BILLING_MONTHS removed from lib/plans.js. Stripe lookup keys (*_6mo) and payment links unchanged per user.
+
+## 2026-06 Privacy policy
+- User-supplied page saved at frontend/public/privacy-policy.html (served at /privacy-policy.html). Links: landing footer (footer-privacy-link), register form (register-privacy-link). Contact: admin@summitofficesolution.com.
+
+## 2026-06 Trial policy v2 (no code)
+- Register → Medium plan, status trial, 15 days (TRIAL_DAYS). Reminder 5 days before (TRIAL_REMINDER_DAYS=5). On end → status archived + archived_at; archived accounts get 402 on all routes except /auth,/membership,/payments,/stripe (require_not_archived wraps every authed route). Cron run_purge_archived deletes company + users + all company data after ARCHIVE_GRACE_DAYS=5. redeem-trial endpoint/UI removed. TrialBanner (days left / archived lock → redirect to membership). Paying (Stripe) sets active and clears archive.
+- Production Secrets: TRIAL_DAYS=15 (TRIAL_CODE no longer used).
+- Fixes after iteration_16: payment-link webhook reactivation (_fulfil_payment_link, infers plan from amount/lookup_key), archived non-owner lock panel (no loop), trial users can buy any plan. iteration_17 all pass.
+- 2026-06: First-visit WelcomeTutorial (7 steps, localStorage ht_tutorial_seen, Replay in footer); saved login (lib/savedLogin.js: email+password in localStorage + Credential API, Remember-me, autoComplete attrs, saved on register); /user-guide page (pages/UserGuide.js) linked from landing header/footer, register page, app sidebar. Self-tested via screenshot.
+- 2026-06: DashboardTour (components/DashboardTour.js): 8-step spotlight tour on dashboard, auto-shown once for new owners (register sets localStorage ht_show_dash_tour; done key per user id); "Take the tour" replay button on dashboard. Register now lands on /app. Self-tested desktop+mobile.
+- 2026-06: Vehicles (Type first: Truck/Trailer/Large Vehicle; Large->Ownership own/rent; rent->rental_start_date + rental_status in_use/returned), Equipment (Category Power Hand/Shop/Vehicle Tool; status available/servicing; removed location/inspection/service_reminder/hours), Jobs (no name; auto job_number per company from 1001, name="#N – Customer"; start_date/completion_date; status auto on_time/late, manual completed; removed material_cost/onsite), Estimates (sections materials/labor/services, desc+price; job_start_date + num_payments -> payment_schedule, monthly; deposit = schedule[0]), Team (auto username/password shown once in credentials modal; login accepts username), Mobile (CrudTable cards <md, bottom-sheet modals via ModalShell, 44px tap targets, 16px inputs). Tested iteration_18/19.
+- 2026-06: Integration API for Admin Control 241 (X-API-Key = INTEGRATION_API_KEY): GET /api/integration/clients (ticket-creating users), GET/PUT /api/integration/tickets[/{id}] with write-back notifications. Docs: memory/INTEGRATION_API.md. Curl-tested.
+- 2026-06: Ticket attachments (POST /data-entry-tickets/upload: images/PDF/CSV/TXT/XLS(X)/DOC(X); attachments on tickets + messages) and two-way thread (POST /data-entry-tickets/{id}/messages owner; /admin/... and /integration/... admin replies notify owner; admin_notes changes also appended to thread). UI: components/dataentry/TicketParts.js, DataEntry.js, AdminParts TicketModal. Curl + screenshot tested.
+- 2026-06: /integration/clients now returns ALL users (scope=all default; ?scope=ticket_creators) with company name/plan/status; added /integration/health. Deployer RCA: prod has key + routes (401 w/o key) -> Admin Control was sending missing/mismatched key.
+- 2026-06: Signup push webhook (ADMIN_CONTROL_WEBHOOK_URL env, events client.created/ticket.created, X-API-Key signed) + client record phone/address/member_count; register form has optional phone + address. Curl + local receiver tested.
+- 2026-06: Hard-hat favicon (public/favicon.svg + png sizes 32/180/192/512, manifest.json, apple-touch-icon) linked in index.html.
+- 2026-06: Favicon/app icons = lucide HardHat in brand yellow (#d9ff00) on black: public/favicon.svg + png sizes, apple-touch-icon, manifest.json linked in index.html.

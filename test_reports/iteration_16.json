@@ -1,0 +1,46 @@
+{
+  "summary": "Tested the automatic 15-day Medium trial, archiving when the trial ends (402), the trial-reminders cron (reminder, trial-ended, purge) and the active owner/superadmin regression. Backend: 9/9 pytest pass. Frontend: the owner trial flow and the archived redirect work. Found 3 issues: (1) HIGH: the in-app plan buttons send users to static Stripe Payment Links, which never create a payment_transactions record, so paying cannot reactivate an archived company. (2) MEDIUM: an archived foreman or employee gets stuck in a redirect loop between /app and /app/membership with repeated 402 toasts. (3) MEDIUM: during the trial, the Medium button is disabled as 'Current plan', so a trial user cannot pay for Medium early.",
+  "backend_issues": {
+    "critical": [
+      {"endpoint": "/api/stripe/webhook + frontend Membership checkout", "issue": "Membership.js sends the user to REACT_APP_STRIPE_PAYMENT_LINK_* when it is set (all 3 are set in frontend/.env). The /api/payments/checkout session is never created, so no payment_transactions record exists. stripe_webhook only fulfils when it finds a record by session_id, so a payment-link payment never sets membership_status 'active'. The archived company stays archived and is purged 5 days later even after paying. Verified: the archived owner clicking 'Choose Medium' goes to https://buy.stripe.com/6oUdRa0jR2MceX94yO38401.", "priority": "HIGH"}
+    ],
+    "minor": [
+      {"endpoint": "/api/cron/trial-reminders", "issue": "The cron is global. While testing, it legitimately set trial_reminder_sent=true on the existing 'UI Trial Co' (6aed3fbf620993b4b164ea2d), a company I did not create, because its trial ends 2026-11-16 (inside the 5-day window). This is expected policy behaviour, not a bug, but that company's data was changed."},
+      {"endpoint": "/api/jobs (historical)", "issue": "The backend log has 2 earlier GET /api/jobs 500s (TypeError: user is None in list_items). They came before this run and most likely happened while require_not_archived was mid-edit (hot reload). They did not reproduce now."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "TrialBanner + Protected (App.js)", "issue": "An archived non-owner (foreman/employee) is sent by TrialBanner's <Navigate> to /app/membership. That route is owner-only, so Protected sends them back to /app, and the two keep redirecting. The dashboard sits on 'Loading...' and the screen fills with repeated 402 toasts. There is no archived banner or explanation for staff. Fix: show non-owners a static 'account archived, ask your owner' screen instead of navigating.", "selector": "[data-testid=archived-banner]", "priority": "MEDIUM"},
+      {"component": "Membership.js", "issue": "During the trial, isCurrent = active && current==='medium' (status 'trial' counts as active). The Medium button shows 'Current plan' and is disabled, so a trial owner cannot subscribe to Medium before the trial ends. Only Startup and Large can be bought.", "selector": "[data-testid=checkout-medium-btn]", "priority": "MEDIUM"}
+    ],
+    "integration_issues": [
+      {"flow": "Archived owner on /app/membership", "issue": "A red error toast 'Your free trial has ended and this account is archived…' appears on the membership page, caused by background calls that return 402 (notifications etc.). There is no global 402 handler in lib/api.js either. A user whose trial expires mid-session gets error toasts and is not redirected until /auth/me is refreshed.", "affected_selectors": ["[data-testid=membership-page]"]}
+    ],
+    "design_issues": [
+      {"screen": "Register", "issues": ["After signup the user lands on /app/membership rather than the dashboard. This works, but it is odd for a no-card trial (Auth.js nav('/app/membership'))."]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/test_trial_archive.py", "/app/backend/tests/setup_archived_ui.py", "/app/test_reports/pytest/pytest_trial.xml"],
+  "action_items": [
+    "HIGH: Make paying reactivate archived accounts. Either use /api/payments/checkout (which creates a metadata-bearing session) in the in-app Membership page instead of static payment links, or have the webhook handle payment-link sessions by mapping client_reference_id (append ?client_reference_id=<company_id> to the link) or customer email to the company.",
+    "Fix the redirect loop for archived foreman/employee users: TrialBanner should not Navigate non-owners to the owner-only /app/membership. Render an archived info screen instead.",
+    "Allow trial owners to purchase Medium: treat isCurrent as status==='active' only.",
+    "Optional: add a 402 interceptor in lib/api.js that refreshes auth and routes to /app/membership, and suppress duplicate 402 toasts."
+  ],
+  "critical_code_review_comments": [
+    "server.py is 1508 lines and should be split into routers (auth, membership/cron, payments, resources).",
+    "require_not_archived skips its check for any path under /api/auth/, /api/membership, /api/payments/ and /api/stripe/. That is fine, but /api/payments/status/{session_id} has no auth at all.",
+    "_fulfil_payment does not clear archived_at or trial fields on reactivation. That is harmless because the purge filters on membership_status 'archived', but it would be cleaner to clear them.",
+    "run_purge_archived deletes users and data for every archived company older than ARCHIVE_GRACE_DAYS, including any legacy company set to 'archived' by other means. Consider also requiring trial_used/trial_ends_at to be present as a safety guard.",
+    "The TRIAL_CODE env var is still present in backend/.env but unused."
+  ],
+  "updated_files": ["/app/backend/tests/test_trial_archive.py", "/app/backend/tests/setup_archived_ui.py"],
+  "success_rate": {"backend": "100% (9/9)", "frontend": "80% (owner trial/archived/admin flows pass; staff archived loop and the trial Medium purchase fail)"},
+  "test_credentials": "Owner robinjones335@gmail.com / BuildIt2026! (works, superadmin).",
+  "seed_data_creation": "Only throwaway TEST_ companies/users (test_*@example.com). All were deleted by id after the tests (pytest fixture plus manual cleanup of TEST_ARCH_c14d3d11 and TEST_UI_5634a902).",
+  "retest_needed": true,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Run: export REACT_APP_BACKEND_URL; TEST_OWNER_PASSWORD='BuildIt2026!' pytest backend/tests/test_trial_archive.py. The tests manipulate Mongo directly (pymongo, reading backend/.env) to backdate trial_ends_at/archived_at. The browser automation env has no pymongo: use backend/tests/setup_archived_ui.py to create an archived owner and foreman, then log in through the UI (it prints the emails; passwords TrialPass1! / FmPass123!) and clean up afterwards. Server date is 2026-11-15.",
+  "rca of the issue": "Reactivation: Membership.checkout() returns early with window.location.href = PAYMENT_LINKS[plan] whenever the env link exists, so the backend never records the session and stripe_webhook's find_one({session_id}) returns None, meaning no fulfilment. Staff loop: TrialBanner renders <Navigate to='/app/membership'> for any archived non-superadmin user, while App.js wraps /app/membership in Protected roles=['owner'], which Navigates non-owners back to /app."
+}

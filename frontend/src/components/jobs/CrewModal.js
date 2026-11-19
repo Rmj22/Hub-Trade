@@ -57,9 +57,9 @@ export function CrewModal({ job, onClose, onSaved }) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-4">
       <div className="absolute inset-0 bg-black/60" onClick={onClose} />
-      <div className="relative bg-card border border-border rounded-md w-full max-w-xl max-h-[90vh] overflow-y-auto p-6" data-testid="crew-modal">
+      <div className="relative bg-card border border-border rounded-t-2xl sm:rounded-md w-full sm:max-w-xl max-h-[92vh] overflow-y-auto p-5 sm:p-6" data-testid="crew-modal">
         <div className="flex items-center justify-between mb-1">
           <h2 className="font-head font-bold text-xl">Assign crew</h2>
           <button onClick={onClose} data-testid="crew-close-btn"><X className="w-5 h-5" /></button>

@@ -68,7 +68,12 @@ h1,h2,h3,h4,.font-head { font-family: 'Cabinet Grotesk', sans-serif; }
 
 @layer base {
   * { @apply border-border; }
-  body { @apply bg-background text-foreground; }
+  html { -webkit-text-size-adjust: 100%; overflow-x: hidden; }
+  body { @apply bg-background text-foreground; overflow-x: hidden; }
+  @media (max-width: 640px) {
+    button, [role="button"], select, input:not([type="checkbox"]):not([type="radio"]):not([type="file"]), textarea, a.btn { min-height: 44px; }
+    input, select, textarea { font-size: 16px; }
+  }
 }
 
 .grain::before {

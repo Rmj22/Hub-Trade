@@ -1,0 +1,33 @@
+{
+  "summary": "Retest of 3 fixes from iteration_16. All 3 verified. FIX 1: a signed checkout.session.completed webhook with no local record reactivates an archived owner's company (8900->medium, 6000->startup, 14900->large), removes archived_at, inserts a payment_transactions doc with source='payment_link', and /api/jobs returns 200 again. FIX 2: an archived foreman lands on /app and sees the archived-locked panel; no redirect loop (one navigation), no toasts, URL stays put. FIX 3: for a trial owner, all plan buttons read 'Choose X' and are enabled; for the active owner (robinjones), Medium reads 'Current plan' and is disabled. Regression passed: the new-signup banner shows 15 days, and an archived owner is redirected to /app/membership with archived-banner and archived-notice. End to end: after a webhook for 14900, the archived owner and foreman are both unlocked (Large plan, dashboard loads).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "/api/stripe/webhook (_fulfil_payment_link)", "issue": "No unique index on payment_transactions.session_id. A sequential replay is idempotent, because the second call finds the record and takes the _fulfil_payment path. But two concurrent Stripe retries could both miss find_one and insert twice."},
+      {"endpoint": "/api/notifications", "issue": "Returns 402 for archived members. NotificationBell keeps polling it while the locked panel is shown. The error is swallowed silently (.catch), so this is only wasted requests."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "Archived owner: clicking a sidebar nav item (e.g. Jobs)", "issue": "The redirect back to /app/membership works, but the target page mounts briefly and fires API calls that return 402. This produces a stack of red 'Your free trial has ended...' toasts (about 3 stacked). Also seen in iteration_16 as a minor issue. The non-owner path is fixed because Layout hides children, but the owner path does not.", "selector": "[data-sonner-toast]", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": ["/app/backend/tests/test_iter17_fixes.py", "/app/test_reports/pytest/iter17.xml"],
+  "action_items": [
+    "Optional: add a unique index on payment_transactions.session_id (or use an upsert in _fulfil_payment_link) so concurrent webhook retries cannot insert twice.",
+    "Optional: for archived owners, don't render children (or skip the 402 toast) on non-membership routes, so the redirect happens without stacked 402 toasts. Do the same in Layout for owners on non-membership paths.",
+    "Optional: skip NotificationBell polling when company.membership_status === 'archived'."
+  ],
+  "critical_code_review_comments": [
+    "_fulfil_payment_link matches the payer by email against owners only. If someone pays with a different email, nothing is activated and only a warning is logged; no admin alert is raised.",
+    "The amount-to-plan inference depends on monthly prices being unique. It is fine now, but it will break if prices change or if coupons or taxes change amount_total. The fallback to the line_items lookup_key is good."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter17_fixes.py"],
+  "success_rate": {"backend": "100% (8/8)", "frontend": "100% (all 3 fixes + regression)"},
+  "seed_data_creation": "Created TEST_ companies, users and cs_test_link_* transactions during the run; all deleted by id or email afterwards. No seed data was modified.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Run: REACT_APP_BACKEND_URL=... pytest backend/tests/test_iter17_fixes.py. Its signed_post helper builds a valid Stripe-Signature header using a manual HMAC of the STRIPE_WEBHOOK_SECRET. Login testids: login-email, login-password, login-submit-btn. Register testids: register-name, register-company, register-email, register-password, register-submit-btn. setup_archived_ui.py creates an archived owner and foreman (passwords TrialPass1! and FmPass123!). The UI plan buttons go to static buy.stripe.com payment links."
+}

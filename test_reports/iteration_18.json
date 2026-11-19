@@ -1,0 +1,42 @@
+{
+  "summary": "I tested the iteration-18 features on the backend (pytest, 11 tests, 10 passed) and in the UI with Playwright (desktop 1920 and mobile 390x844). Jobs: each job gets an auto id '#NNNN – Customer'. The status is late when the completion date has passed, on_time when it is in the future, and completed when set. A PUT keeps job_number and rebuilds the name when the customer changes. The Jobs modal has no Job Name field. Vehicles: Type is the first field. Large Vehicle shows Ownership, and Rent shows Rental Start Date and Rental Status. The row badge says 'Still in use'. Equipment: Category and Status selects work, and the Location, Inspection, Service Reminder and Hours fields and columns are gone. Estimates: Materials, Labor and Services sections work, the total updates live, the schedule rows change with the number of payments, saving works, and the public page includes payment_schedule. Team: an add with only name and role returns credentials and shows the credentials modal. After logout, the generated username logs in as an employee. Mobile: Jobs, Vehicles, Equipment and Team show as cards, all modals open as bottom sheets at x=0 and 390px wide, and there is no horizontal overflow. Two bugs found: (1) the payment due dates shown in the estimate modal do not match the ones the backend stores; (2) a job POSTed with a status other than 'active' or 'completed' is not counted in dashboard jobs_behind.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/jobs", "issue": "create_item does not normalize status the way PUT does. A POST with status 'on_time' or 'late' is stored as that status, and dashboard jobs_behind (which queries status=='active') then skips it, even though GET shows it as 'late'. Reproduced in test_dashboard_counts_late_job_created_with_client_status. Fix: in create_item for jobs, use `if doc['status'] != 'completed': doc['status'] = 'active'`."},
+      {"endpoint": "payment_schedule() in server.py ~line 370", "issue": "Due dates are spaced every 30 days (timedelta(days=30*i)), but the frontend buildSchedule uses calendar months (setMonth). For start 2026-03-01 with 3 payments, the modal shows 03-01 / 04-01 / 05-01, while the backend stores and the public page shows 03-01 / 03-31 / 04-30."},
+      {"endpoint": "_public_estimate / send email", "issue": "deposit_amount is still total*deposit_percent (default 25%), but the new schedule's 'Deposit' row is total/num_payments. The public page can therefore ask for a deposit that differs from the schedule's Deposit row, e.g. $375 vs $500 on a $1500 estimate with 3 payments."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "EstimateParts.buildSchedule", "issue": "`new Date(`${start}T00:00:00`)` is local time, then `.toISOString().slice(0,10)` converts it to UTC. In time zones ahead of UTC (e.g. IST, CET) every due date shows one day early. Users in UTC- zones are not affected. The month math also differs from the backend (see above).", "selector": "[data-testid='payment-schedule']", "priority": "MEDIUM"}
+    ],
+    "integration_issues": [
+      {"flow": "Estimate modal -> save -> public page", "issue": "The schedule dates shown in the modal differ from the saved and public payment_schedule dates after the first row.", "affected_selectors": ["payment-schedule", "estimate-save-btn"]}
+    ],
+    "design_issues": [
+      {"screen": "Jobs, Vehicles, Estimates modals", "issues": ["The date fields use the browser's native date picker (input type=date) instead of the shadcn Calendar."]},
+      {"screen": "Jobs cards (mobile)", "issues": ["An empty address shows a blank value instead of '—' (cell() renders an empty string)."]},
+      {"screen": "Jobs page", "issues": ["Legacy jobs without a job_number (e.g. 'Downtown Reno', 'TEST Fmn Job') still show their old names, not the '#NNNN – Customer' format.", "The save toast says 'Jobs saved' (plural)."]},
+      {"screen": "Team credentials modal", "issues": ["The generated username looks like an email ('testuiworker9711@475442.hubtrade'), which is long and hard to type on a phone. A short handle may be friendlier."]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/test_iter18_features.py", "/app/test_reports/pytest/pytest_iter18.xml"],
+  "action_items": [
+    "In crud_router.create_item for jobs, normalize status to 'active' unless it is 'completed', so jobs_behind counts every late job.",
+    "Make the frontend buildSchedule and backend payment_schedule use the same date math (calendar months on both sides is recommended), and build the frontend date string from local date parts instead of toISOString.",
+    "Make the public deposit_amount match the schedule's Deposit row, or drop deposit_percent."
+  ],
+  "critical_code_review_comments": [
+    "job_display mutates the doc and derives status at read time. Any DB query by status (dashboard, reports) must use the active + completion_date filter and not the stored status.",
+    "In the job edit form, the Status select gets value 'late' or 'on_time', which is not an option, so the select shows the first option. It works because PUT normalizes the status, but the select is never in sync with the data.",
+    "next_job_number uses an upsert counter with no unique index or migration for existing jobs. Legacy jobs keep no number."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter18_features.py"],
+  "success_rate": {"backend": "91% (10/11)", "frontend": "95%"},
+  "seed_data_creation": "None kept. All TEST_ jobs, vehicles, equipment, estimates and team users created by the tests and UI runs were deleted by id. The job counter advanced to about #1008 because of the test-created jobs.",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Run: cd /app/backend && REACT_APP_BACKEND_URL=... python -m pytest tests/test_iter18_features.py -n 0. It cleans up its own records. The server date is around 2026-11; the job '#1001 – John Smith' (completion 2026-05-01) shows Past due. Testids work as listed in the request. Modal ids: vehicles-modal, equipment-modal, jobs-modal, member-modal, estimate-modal, credentials-modal. Card containers: '<x>-cards'. On the Team page the cards container is 'employees-cards'."
+}

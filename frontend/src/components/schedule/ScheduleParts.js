@@ -113,9 +113,9 @@ export function ScheduleModal({ entry, jobs, res, onClose, onSaved }) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-4">
       <div className="absolute inset-0 bg-black/60" onClick={onClose} />
-      <div className="relative bg-card border border-border rounded-md w-full max-w-xl max-h-[90vh] overflow-y-auto p-6" data-testid="schedule-modal">
+      <div className="relative bg-card border border-border rounded-t-2xl sm:rounded-md w-full sm:max-w-xl max-h-[92vh] overflow-y-auto p-5 sm:p-6" data-testid="schedule-modal">
         <div className="flex items-center justify-between mb-6"><h2 className="font-head font-bold text-xl">{entry.id ? "Edit" : "Schedule"} job</h2><button onClick={onClose}><X className="w-5 h-5" /></button></div>
         <div className="grid sm:grid-cols-2 gap-4 mb-4">
           <div><label className={lbl}>Date</label><input type="date" data-testid="schedule-date" className={inp} value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} /></div>

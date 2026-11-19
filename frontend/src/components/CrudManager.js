@@ -4,7 +4,7 @@ import { cachedGet, useOffline } from "../lib/offline";
 import { toast } from "sonner";
 import { Plus, CloudOff } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
-import { CrudTable, CrudModal } from "./crud/CrudParts";
+import { CrudTable, CrudModal, visibleFields } from "./crud/CrudParts";
 
 const emptyForm = (fields) => Object.fromEntries(fields.map((f) => [f.key, f.default ?? (f.type === "number" ? 0 : "")]));
 
@@ -31,7 +31,7 @@ export default function CrudManager({ title, endpoint, testid, fields, columns, 
   const openEdit = (it) => { setEditId(it.id); setModal({ ...emptyForm(fields), ...it }); };
 
   const save = async () => {
-    const payload = Object.fromEntries(fields.map((f) => [f.key, modal[f.key]]));
+    const payload = Object.fromEntries(visibleFields(fields, modal).map((f) => [f.key, modal[f.key]]));
     try {
       if (editId) await api.put(`/${endpoint}/${editId}`, payload);
       else await api.post(`/${endpoint}`, payload);
