@@ -4,7 +4,7 @@ const badge = (label, cls) => <span className={`inline-flex items-center gap-1.5
 
 export const GREEN = "bg-green-500/15 text-green-500";
 export const RED = "bg-red-500/15 text-red-500";
-export const BLACK = "bg-black text-white dark:bg-white dark:text-black";
+export const BLACK = "bg-foreground text-background";
 const PRIMARY = "bg-primary/20 text-primary";
 
 export const JOB_STATUS = {

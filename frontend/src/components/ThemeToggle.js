@@ -1,14 +1,13 @@
 import { useEffect, useState } from "react";
 import { Moon, Sun } from "lucide-react";
 
+const KEY = "hubtrade_theme";
+
 export default function ThemeToggle() {
-  const [dark, setDark] = useState(() => {
-    const saved = localStorage.getItem("theme");
-    return saved ? saved === "dark" : true;
-  });
+  const [dark, setDark] = useState(() => localStorage.getItem(KEY) === "dark");
   useEffect(() => {
     document.documentElement.classList.toggle("dark", dark);
-    localStorage.setItem("theme", dark ? "dark" : "light");
+    localStorage.setItem(KEY, dark ? "dark" : "light");
   }, [dark]);
   return (
     <button
