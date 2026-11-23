@@ -9,6 +9,7 @@ import csv
 import uuid
 import logging
 import asyncio
+from zoneinfo import ZoneInfo
 import secrets
 from datetime import datetime, timezone, timedelta
 from typing import List, Optional, Annotated
@@ -563,6 +564,8 @@ def crud_router(name: str, collection: str, Model, create_roles=("owner", "forem
     async def delete_item(item_id: str, user: dict = Depends(require_role("owner"))):
         gone = await db[collection].find_one({"_id": _oid(item_id), "company_id": user["company_id"]})
         await db[collection].delete_one({"_id": _oid(item_id), "company_id": user["company_id"]})
+        if collection == "jobs":
+            await db.schedule.delete_many({"company_id": user["company_id"], "job_id": item_id})
         await log_audit(user["company_id"], user, f"Deleted {label}: {gone.get('name', '') if gone else ''}".strip())
         return {"status": "deleted"}
 
@@ -1238,7 +1241,12 @@ async def _clock_notify(cid: str, ntype: str, emp: Optional[dict], job_id: Optio
     job = await db.jobs.find_one({"_id": ObjectId(job_id)}, {"name": 1, "job_number": 1, "customer_name": 1, "address": 1}) if job_id and ObjectId.is_valid(job_id) else None
     job_name = job_display(job)["name"] if job else "no job selected"
     t = datetime.fromisoformat(at_iso)
-    when = f"{t.strftime('%b %d, %Y')} at {t.strftime('%I:%M %p').lstrip('0')}"
+    tzname = os.environ.get("COMPANY_TIMEZONE", "America/New_York")
+    try:
+        t = t.astimezone(ZoneInfo(tzname))
+    except Exception:
+        pass
+    when = f"{t.strftime('%b %d, %Y')} at {t.strftime('%I:%M %p').lstrip('0')} {t.tzname() or ''}".strip()
     verb = "clocked in" if ntype == "clock_in" else "clocked out"
     await notify(cid, ntype, f"{(emp or {}).get('name', 'Employee')} {verb} — {job_name} — {when}",
                  employee_id=str(emp["_id"]) if emp else None, job_id=job_id, at=at_iso)
@@ -1734,11 +1742,11 @@ def user_prefs(user: dict) -> dict:
 
 
 class NotifPrefs(BaseModel):
-    clock_in: bool = True
-    clock_out: bool = True
-    schedule_change: bool = True
-    assignment: bool = True
-    missed_clock_in: bool = True
+    clock_in: Optional[bool] = None
+    clock_out: Optional[bool] = None
+    schedule_change: Optional[bool] = None
+    assignment: Optional[bool] = None
+    missed_clock_in: Optional[bool] = None
 
 
 @api.get("/notification-prefs")
@@ -1748,9 +1756,10 @@ async def get_notification_prefs(user: dict = Depends(require_not_archived)):
 
 @api.put("/notification-prefs")
 async def set_notification_prefs(req: NotifPrefs, user: dict = Depends(require_role("owner", "foreman"))):
-    await db.users.update_one({"_id": user["_id"]}, {"$set": {"notification_prefs": req.model_dump()}})
+    merged = {**user_prefs(user), **{k: v for k, v in req.model_dump().items() if v is not None}}
+    await db.users.update_one({"_id": user["_id"]}, {"$set": {"notification_prefs": merged}})
     await log_audit(user["company_id"], user, "Updated notification preferences")
-    return req.model_dump()
+    return merged
 
 
 @api.get("/notifications")

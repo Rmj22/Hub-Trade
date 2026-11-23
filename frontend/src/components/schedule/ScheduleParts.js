@@ -152,8 +152,9 @@ export function ScheduleModal({ entry, jobs, res, onClose, onSaved }) {
   };
   const save = async () => {
     if (!form.job_id) { toast.error("Pick a job"); return; }
+    const added = form.employee_ids.filter((id) => !(entry.employee_ids || []).includes(id));
     try {
-      const found = await checkConflicts([form.date], form.employee_ids, form.job_id);
+      const found = await checkConflicts([form.date], added, form.job_id);
       if (found.length) { setConflicts(found); return; }
     } catch (e) { toast.error(errMsg(e)); return; }
     commit();
