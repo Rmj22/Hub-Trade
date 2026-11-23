@@ -1,0 +1,35 @@
+{
+  "summary": "Frontend-only visual refresh test (desktop 1920 + mobile 390). PASS: light theme is the default even when the old localStorage 'theme'='dark' is set (it is ignored and hubtrade_theme is set to 'light'). Body bg is rgb(250,248,245) with no dark class on landing, login, register, dashboard, jobs, schedule, vehicles, equipment, estimates, team, timecards, membership and notifications, and no large dark panels were found. Fonts Switzer and Clash Display load. theme-toggle-btn switches to dark (bg rgb(10,10,10)), stays dark after reload, and goes back to light. Primary buttons are #FBC113 with dark text rgb(18,26,43), about 11:1 contrast. Active sidebar nav is yellow with dark text. text-primary links use a darker amber and are readable. All 7 dashboard stat cards show a colored top bar, a tinted icon chip and a value. The New Vehicle, Assign crew and New estimate modals render correctly in light mode. Login works. A TEST_Visual Truck vehicle was created, shown in the table, deleted, and stayed gone after reload. On mobile 390px there is no horizontal overflow on dashboard, jobs, sidebar menu or landing. Main issue: colored status badges use -500 Tailwind shades and are low-contrast on the light background.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Jobs / Vehicles / Equipment / Dashboard status badges", "issues": [
+        "Status badges (Resources.js JOB_STATUS, GREEN, RED; dashboard 'in progress'/'done' chips) use text-amber-500, text-sky-500, text-green-500 and text-red-500 on a 15% tint over the light background. Measured contrast vs white: In Progress amber about 2.15:1, Scheduled sky about 2.77:1, Available/Still in use green about 2.28:1, Delayed red about 3.76:1. All are below WCAG AA 4.5:1. Suggest light-mode shades -700 (e.g. 'text-amber-700 dark:text-amber-400'). Same for CrudManager offline banner text-amber-500."
+      ]},
+      {"screen": "Brand icon (light mode)", "issues": ["The hard-hat icon next to 'Hub Trade' on login, register and landing uses text-primary, which the new override turns dark amber/orange (hsl 32 92% 38%). It is no longer yellow. The user asked to keep the yellow hard-hat icon. The sidebar logo is fine (yellow chip with dark icon)."]},
+      {"screen": "Dark mode palette", "issues": ["Dark mode still uses the old neon lime primary (hsl 69 100% 50%) instead of hard-hat yellow, so the brand color differs between themes. Consider setting the dark --primary to about 45 97% 53%."]},
+      {"screen": "Login/Register", "issues": ["ThemeToggle is not mounted on Login/Register, so the 'dark' class is only applied after visiting a page that has the toggle. A direct load of /login with hubtrade_theme=dark shows light. Minor inconsistency; could init the theme in index.js."]},
+      {"screen": "Mobile Jobs cards (390px)", "issues": ["Job titles wrap to 3 lines because 5 action icons share the header row. This existed before the refresh and has no overflow."]},
+      {"screen": "Modals", "issues": ["Date fields use the browser's native date picker, not the shadcn calendar. This existed before the refresh."]}
+    ]
+  },
+  "test_report_links": [],
+  "action_items": [
+    "Darken light-mode status badge text (amber/sky/green/red -500 → -700, keep -400/-500 for dark) to meet 4.5:1 contrast",
+    "Keep the hard-hat logo icon yellow in light mode (e.g. wrap it in a bg-primary chip like the sidebar, or exempt it from the text-primary override)",
+    "Optionally align the dark-mode --primary with hard-hat yellow",
+    "Optionally apply the saved theme at app boot so Login/Register respect a dark preference"
+  ],
+  "critical_code_review_comments": [
+    "index.css: the global ':root:not(.dark) .text-primary' override changes every text-primary use, including the brand logo icons, so icons that should stay yellow turn amber",
+    "Resources.js BLACK = 'bg-foreground text-background' is a dark navy pill with light text in light mode. Readable, only used for the 'Completed' status (no completed jobs in the current data)"
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "N/A (skipped)", "frontend": "92%"},
+  "seed_data_creation": "Created vehicle TEST_Visual Truck (plate TST-001) and deleted it via the UI; verified it is gone after reload.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Theme key is hubtrade_theme; the default is light. Contrast was measured with a JS luminance calc against white. CrudManager modal testid = '<entity>' (e.g. vehicles), save = '<entity>-save-btn'. Delete uses window.confirm, so accept the dialog (import asyncio in the playwright script). On desktop, use ':visible' on row and button selectors because the mobile cards are hidden duplicates."
+}

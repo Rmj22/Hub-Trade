@@ -46,8 +46,8 @@ h1,h2,h3,h4,.font-head { font-family: 'Clash Display', sans-serif; }
     --card-foreground: 0 0% 98%;
     --popover: 0 0% 7%;
     --popover-foreground: 0 0% 98%;
-    --primary: 69 100% 50%;
-    --primary-foreground: 0 0% 4%;
+    --primary: 45 97% 53%;
+    --primary-foreground: 222 40% 10%;
     --secondary: 0 0% 12%;
     --secondary-foreground: 0 0% 98%;
     --muted: 0 0% 12%;
@@ -58,8 +58,8 @@ h1,h2,h3,h4,.font-head { font-family: 'Clash Display', sans-serif; }
     --destructive-foreground: 0 0% 98%;
     --border: 0 0% 15%;
     --input: 0 0% 15%;
-    --ring: 69 100% 50%;
-    --chart-1: 69 100% 50%;
+    --ring: 45 97% 53%;
+    --chart-1: 45 97% 53%;
     --chart-2: 200 80% 55%;
     --chart-3: 40 90% 60%;
     --chart-4: 150 60% 50%;
@@ -86,6 +86,12 @@ h1,h2,h3,h4,.font-head { font-family: 'Clash Display', sans-serif; }
   .bg-card { box-shadow: 0 1px 2px hsl(222 40% 14% / 0.04), 0 8px 24px -16px hsl(222 40% 14% / 0.18); }
   :root:not(.dark) .text-primary { color: hsl(var(--primary-strong)); }
   :root:not(.dark) .bg-primary .text-primary, :root:not(.dark) .bg-primary.text-primary { color: hsl(var(--primary-foreground)); }
+  :root:not(.dark) .lucide-hard-hat.text-primary { color: hsl(var(--primary)); filter: drop-shadow(0 1px 0 hsl(32 92% 38% / 0.6)); }
+  :root:not(.dark) .text-amber-500 { color: #b45309; }
+  :root:not(.dark) .text-sky-500 { color: #0369a1; }
+  :root:not(.dark) .text-green-500 { color: #15803d; }
+  :root:not(.dark) .text-red-500 { color: #b91c1c; }
+  :root:not(.dark) .text-blue-500 { color: #1d4ed8; }
   .dark .bg-card { box-shadow: 0 1px 0 hsl(0 0% 100% / 0.03) inset; }
   .bg-primary.text-primary-foreground { box-shadow: 0 6px 18px -8px hsl(var(--primary) / 0.7); }
 }
