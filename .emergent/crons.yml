@@ -1,6 +1,6 @@
 crons:
   - name: trial-reminders
-    description: "Daily 14:00 UTC: 5-day trial reminders, archive ended trials, purge accounts archived 5+ days"
+    description: "Daily 14:00 UTC: 5-day trial reminders, archive ended trials, purge accounts archived 5+ days, missed clock-in alerts"
     cron: "0 14 * * *"
     endpoint: "{{BASE_URL}}/api/cron/trial-reminders"
     method: POST

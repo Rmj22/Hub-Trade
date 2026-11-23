@@ -8,16 +8,20 @@ export const BLACK = "bg-black text-white dark:bg-white dark:text-black";
 const PRIMARY = "bg-primary/20 text-primary";
 
 export const JOB_STATUS = {
-  on_time: { label: "On time", cls: GREEN },
-  late: { label: "Past due", cls: RED },
+  scheduled: { label: "Scheduled", cls: "bg-sky-500/15 text-sky-500" },
+  in_progress: { label: "In Progress", cls: "bg-amber-500/15 text-amber-500" },
   completed: { label: "Completed", cls: BLACK },
+  delayed: { label: "Delayed", cls: RED },
+  rescheduled: { label: "Rescheduled", cls: "bg-violet-500/15 text-violet-500" },
 };
-export const jobStatusBadge = (s) => { const m = JOB_STATUS[s] || JOB_STATUS.on_time; return badge(m.label, m.cls); };
+export const JOB_STATUS_OPTIONS = Object.entries(JOB_STATUS).map(([value, v]) => ({ value, label: v.label }));
+export const jobStatusBadge = (s) => { const m = JOB_STATUS[s] || JOB_STATUS.scheduled; return badge(m.label, m.cls); };
 
 export const JOB_COLUMNS = [
   { key: "name", label: "Job", render: (it) => <span data-testid="job-name">{it.name}</span> },
   { key: "status", label: "Status", render: (it) => jobStatusBadge(it.status) },
   { key: "start_date", label: "Start" },
+  { key: "work_dates", label: "Extra dates", render: (it) => (it.work_dates?.length ? `${it.work_dates.length} more day${it.work_dates.length > 1 ? "s" : ""}` : "—") },
   { key: "completion_date", label: "Completion" },
   { key: "address", label: "Address" },
 ];
@@ -26,7 +30,7 @@ export const JOB_FIELDS = [
   { key: "address", label: "Address", type: "text" },
   { key: "start_date", label: "Start Date", type: "date" },
   { key: "completion_date", label: "Completion Date", type: "date" },
-  { key: "status", label: "Status", type: "select", options: [{ value: "active", label: "In progress (auto On time / Past due)" }, { value: "completed", label: "Completed" }], default: "active" },
+  { key: "status", label: "Status", type: "select", options: JOB_STATUS_OPTIONS, default: "scheduled" },
   { key: "description", label: "Description", type: "textarea" },
 ];
 

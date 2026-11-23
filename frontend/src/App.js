@@ -19,6 +19,7 @@ import DataEntryPage from "./pages/DataEntry";
 import AdminControl from "./pages/AdminControl";
 import { MembershipPage, PaymentSuccess } from "./pages/Membership";
 import UserGuide from "./pages/UserGuide";
+import NotificationSettingsPage from "./pages/NotificationSettings";
 import { Loader2 } from "lucide-react";
 
 function Protected({ children, roles }) {
@@ -54,6 +55,7 @@ function App() {
           <Route path="/app/reports" element={<Protected roles={["owner"]}><ReportsPage /></Protected>} />
           <Route path="/app/audit-logs" element={<Protected roles={["owner"]}><AuditLogsPage /></Protected>} />
           <Route path="/app/membership" element={<Protected roles={["owner"]}><MembershipPage /></Protected>} />
+          <Route path="/app/notifications" element={<Protected><NotificationSettingsPage /></Protected>} />
           <Route path="/admin-control-241" element={<AdminControl />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { X, Users, Truck, Wrench } from "lucide-react";
 import { api, errMsg } from "../../lib/api";
 import { toast } from "sonner";
+import { ConflictDialog, checkConflicts } from "./JobExtras";
 
 const GROUPS = [
   { key: "assigned_employees", label: "Crew", icon: Users, src: "employees" },
@@ -44,16 +45,27 @@ export function CrewModal({ job, onClose, onSaved }) {
     assigned_equipment: job.assigned_equipment || [],
   });
   const [saving, setSaving] = useState(false);
+  const [conflicts, setConflicts] = useState(null);
 
   const toggle = (key, id) => setSel((s) => ({ ...s, [key]: s[key].includes(id) ? s[key].filter((x) => x !== id) : [...s[key], id] }));
 
-  const save = async () => {
+  const commit = async () => {
     setSaving(true);
     try {
       const { data } = await api.put(`/jobs/${job.id}/crew`, sel);
       toast.success("Crew updated"); onSaved(data); onClose();
     } catch (e) { toast.error(errMsg(e)); }
     setSaving(false);
+  };
+
+  const save = async () => {
+    const dates = [job.start_date, ...(job.work_dates || [])].filter(Boolean);
+    const added = sel.assigned_employees.filter((id) => !(job.assigned_employees || []).includes(id));
+    try {
+      const found = await checkConflicts(dates, added, job.id);
+      if (found.length) { setConflicts(found); return; }
+    } catch (e) { toast.error(errMsg(e)); return; }
+    commit();
   };
 
   return (
@@ -78,6 +90,7 @@ export function CrewModal({ job, onClose, onSaved }) {
           <button onClick={onClose} className="px-5 py-2.5 rounded-md border border-border hover:bg-muted">Cancel</button>
         </div>
       </div>
+      {conflicts && <ConflictDialog conflicts={conflicts} onCancel={() => setConflicts(null)} onProceed={() => { setConflicts(null); commit(); }} />}
     </div>
   );
 }

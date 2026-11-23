@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef } from "react";
 import { api } from "../lib/api";
-import { Bell, Check } from "lucide-react";
+import { Bell, Check, Settings } from "lucide-react";
+import { Link } from "react-router-dom";
 
 const POLL_INTERVAL_MS = 15_000;
 
@@ -40,7 +41,10 @@ export default function NotificationBell() {
         <div className="absolute right-0 mt-2 w-80 max-h-96 overflow-y-auto bg-card border border-border rounded-md shadow-xl z-50" data-testid="notification-panel">
           <div className="flex items-center justify-between px-4 py-3 border-b border-border sticky top-0 bg-card">
             <span className="font-head font-bold text-sm">Notifications</span>
-            {unread > 0 && <button onClick={markAll} data-testid="notification-mark-all-btn" className="text-xs text-primary font-semibold inline-flex items-center gap-1"><Check className="w-3 h-3" /> Mark all read</button>}
+            <div className="flex items-center gap-3">
+              {unread > 0 && <button onClick={markAll} data-testid="notification-mark-all-btn" className="text-xs text-primary font-semibold inline-flex items-center gap-1"><Check className="w-3 h-3" /> Mark all read</button>}
+              <Link to="/app/notifications" onClick={() => setOpen(false)} data-testid="notification-settings-link" aria-label="Notification settings" className="text-muted-foreground hover:text-foreground"><Settings className="w-4 h-4" /></Link>
+            </div>
           </div>
           {items.length === 0 ? (
             <div className="px-4 py-8 text-center text-sm text-muted-foreground">You're all caught up.</div>
@@ -50,7 +54,7 @@ export default function NotificationBell() {
                 <div className="flex items-start gap-2">
                   {!n.read && <span className="w-2 h-2 rounded-full bg-primary mt-1.5 shrink-0" />}
                   <div className={n.read ? "pl-4" : ""}>
-                    <p className="text-sm">{n.message}</p>
+                    <p className="text-sm" data-testid={`notification-msg-${n.type || "general"}`}>{n.message}</p>
                     <p className="text-[11px] text-muted-foreground mt-0.5">{fmt(n.created_at)}</p>
                   </div>
                 </div>

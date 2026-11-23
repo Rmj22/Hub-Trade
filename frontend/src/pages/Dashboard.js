@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { api, errMsg } from "../lib/api";
 import { useAuth } from "../context/AuthContext";
 import { motion } from "framer-motion";
-import { Briefcase, Clock, Truck, Wrench, AlertTriangle, FileText, Users, CheckCircle } from "lucide-react";
+import { Briefcase, Clock, Truck, AlertTriangle, FileText, Users, CheckCircle } from "lucide-react";
 import { toast } from "sonner";
 import { HoursMeter, TicketUpdates, ActiveJobsPanel, CrewStatus } from "../components/dashboard/Panels";
 import DashboardTour from "../components/DashboardTour";
@@ -11,7 +11,6 @@ import { Compass } from "lucide-react";
 const GREETINGS = { owner: "Owner overview", foreman: "Foreman overview" };
 
 const MANAGER_STATS = [
-  { testid: "stat-equipment", icon: Wrench, label: "Equipment assigned", key: "equipment_assigned" },
   { testid: "stat-vehicles", icon: Truck, label: "Vehicles in use", key: "vehicles_in_use" },
   { testid: "stat-jobs-behind", icon: AlertTriangle, label: "Jobs behind", key: "jobs_behind" },
   { testid: "stat-estimates", icon: FileText, label: "Upcoming estimates", key: "upcoming_estimates" },

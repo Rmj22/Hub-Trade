@@ -7,7 +7,7 @@ import OfflineBanner from "./OfflineBanner";
 import TrialBanner from "./TrialBanner";
 import {
   LayoutDashboard, Briefcase, Users, Truck, Wrench, FileText,
-  Clock, MessageSquare, CalendarDays, BarChart3, CreditCard, LogOut, Menu, HardHat, X, LifeBuoy, ShieldCheck, ScrollText, BookOpen,
+  Clock, MessageSquare, CalendarDays, BarChart3, CreditCard, LogOut, Menu, HardHat, X, LifeBuoy, ShieldCheck, ScrollText, BookOpen, Bell,
 } from "lucide-react";
 
 const NAV = [
@@ -24,6 +24,7 @@ const NAV = [
   { to: "/app/reports", label: "Reports", icon: BarChart3, roles: ["owner"] },
   { to: "/app/audit-logs", label: "Audit Logs", icon: ScrollText, roles: ["owner"] },
   { to: "/app/membership", label: "Membership", icon: CreditCard, roles: ["owner"] },
+  { to: "/app/notifications", label: "Notifications", icon: Bell, roles: ["owner", "foreman"] },
 ];
 
 export default function Layout({ children }) {
