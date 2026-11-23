@@ -57,7 +57,7 @@ EMERGENT_KEY = os.environ.get("EMERGENT_LLM_KEY")
 APP_NAME = "fieldforge"
 storage_key = None
 
-TRIAL_DAYS = int(os.environ.get("TRIAL_DAYS", "15"))
+TRIAL_DAYS = 15
 TRIAL_PLAN = "medium"
 ARCHIVE_GRACE_DAYS = int(os.environ.get("ARCHIVE_GRACE_DAYS", "5"))
 
