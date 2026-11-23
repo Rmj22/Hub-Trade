@@ -5,6 +5,7 @@ import { useAuth } from "../context/AuthContext";
 import { ChevronLeft, ChevronRight, CalendarDays } from "lucide-react";
 import { useResources } from "../components/jobs/CrewModal";
 import { WeekStrip, DayDetail, ScheduleModal, MonthGrid, StatusLegend } from "../components/schedule/ScheduleParts";
+import { CrewAvailability } from "../components/schedule/CrewAvailability";
 
 const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 const addDays = (d, n) => { const x = new Date(d); x.setDate(x.getDate() + n); return x; };
@@ -91,6 +92,12 @@ export default function SchedulePage() {
 
       {view === "month" && <MonthGrid start={rangeStart} month={day.getMonth()} selected={iso(day)} entries={entries} onSelect={(d) => { setDay(d); setView("day"); }} />}
       {view === "week" && <WeekStrip days={weekDays} selected={iso(day)} entries={entries} onSelect={(d) => setDay(d)} />}
+      {view === "week" && canEdit && (
+        <div className="mb-8" data-testid="schedule-availability-section">
+          <h3 className="font-head font-bold text-lg mb-3">Crew availability</h3>
+          <CrewAvailability days={weekDays} employees={res.employees} entries={entries} />
+        </div>
+      )}
       {view !== "month" && (
         <DayDetail date={day} entries={dayEntries} lookup={lookup} canEdit={canEdit} onStatus={setStatus}
           onAdd={() => setModal({ date: iso(day) })} onEdit={(e) => setModal(e)} onRemove={remove} />
