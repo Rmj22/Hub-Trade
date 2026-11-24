@@ -7,7 +7,7 @@ import OfflineBanner from "./OfflineBanner";
 import TrialBanner from "./TrialBanner";
 import {
   LayoutDashboard, Briefcase, Users, Truck, Wrench, FileText,
-  Clock, MessageSquare, CalendarDays, BarChart3, CreditCard, LogOut, Menu, HardHat, X, LifeBuoy, ShieldCheck, ScrollText, BookOpen,
+  Clock, MessageSquare, CalendarDays, BarChart3, CreditCard, LogOut, Menu, HardHat, X, LifeBuoy, ShieldCheck, ScrollText, BookOpen, Bell,
 } from "lucide-react";
 
 const NAV = [
@@ -24,6 +24,7 @@ const NAV = [
   { to: "/app/reports", label: "Reports", icon: BarChart3, roles: ["owner"] },
   { to: "/app/audit-logs", label: "Audit Logs", icon: ScrollText, roles: ["owner"] },
   { to: "/app/membership", label: "Membership", icon: CreditCard, roles: ["owner"] },
+  { to: "/app/notifications", label: "Notifications", icon: Bell, roles: ["owner", "foreman"] },
 ];
 
 export default function Layout({ children }) {
@@ -36,8 +37,8 @@ export default function Layout({ children }) {
   const SideContent = () => (
     <div className="flex flex-col h-full">
       <div className="flex items-center gap-2 px-6 h-16 border-b border-border shrink-0">
-        <HardHat className="w-6 h-6 text-primary" />
-        <span className="font-head font-extrabold text-lg tracking-tight">Hub Trade</span>
+        <span className="w-9 h-9 rounded-lg bg-primary text-primary-foreground flex items-center justify-center shadow-sm"><HardHat className="w-5 h-5" /></span>
+        <span className="font-head font-bold text-xl tracking-tight">Hub Trade</span>
       </div>
       <nav className="flex-1 overflow-y-auto p-3 space-y-1">
         {links.map((n) => (
@@ -49,7 +50,7 @@ export default function Layout({ children }) {
             data-testid={`nav-${n.label.toLowerCase().replace(/\s/g, "-")}`}
             className={({ isActive }) =>
               `flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium transition-colors ${
-                isActive ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                isActive ? "bg-primary text-primary-foreground font-semibold shadow-sm" : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
               }`
             }
           >

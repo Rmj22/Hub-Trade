@@ -1,6 +1,6 @@
 /* Hub Trade offline service worker: app shell + static assets */
-const SHELL = "hubtrade-shell-v1";
-const ASSETS = "hubtrade-assets-v1";
+const SHELL = "hubtrade-shell-v2";
+const ASSETS = "hubtrade-assets-v2";
 
 self.addEventListener("install", (e) => {
   e.waitUntil(caches.open(SHELL).then((c) => c.addAll(["/", "/index.html"])).then(() => self.skipWaiting()));

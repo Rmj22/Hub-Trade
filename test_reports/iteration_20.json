@@ -1,0 +1,47 @@
+{
+  "summary": "Iteration 20: tested auto job scheduling, work dates, statuses, conflict detection, clock-in/out notifications and notification prefs. Backend: 15 of 17 pytest checks pass. The 2 failures are an orphan schedule entry left when a job is deleted, and a partial notification-prefs PUT resetting the other prefs. Frontend (owner, desktop and mobile 390x844): every requested flow works. Dashboard has no 'Equipment assigned' tile and the Equipment page loads. A new job with a start date auto-appears in the Monthly, Weekly and Daily views with its status badge and AUTO tag. The work dates modal adds a day and the entry appears while the start date stays unchanged. The status select updates the badge. Prev, next and today navigate correctly. The crew-modal and schedule-modal conflict dialogs list the employee, the other job and the date; Cancel saves nothing and Proceed saves. Notification toggles persist after reload; the bell gear and the sidebar link both open /app/notifications. No horizontal overflow on mobile.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "DELETE /api/jobs/{id}", "issue": "Deleting a job does not remove its schedule entries (auto or manual). Orphans show in GET /api/schedule as job_name 'Job' with empty customer, and still count in POST /api/schedule/conflicts, giving false conflict warnings for an employee on the deleted job ('Already on Job'). Fix: in crud delete_item, when collection == 'jobs', run db.schedule.delete_many({company_id, job_id}). Optionally also filter schedule/conflicts rows to jobs that exist."},
+      {"endpoint": "PUT /api/notification-prefs", "issue": "The NotifPrefs model defaults every key to True and the whole object is replaced, so a partial body such as {clock_in:false} silently turns any other disabled pref back on. The frontend sends the full object, so the UI is fine. Fix: use Optional fields and merge with the current user_prefs."},
+      {"endpoint": "POST /api/timecards/clock-in|clock-out", "issue": "The time in the notification message is formatted from the UTC timestamp (e.g. '9:16 PM' UTC), not the company's local time, so owners see the wrong clock time. Store 'at' (already done) and format on the client, or use the company timezone."},
+      {"endpoint": "sync_job_schedule", "issue": "Crew edits made through ScheduleModal on an auto entry are overwritten by the job's assigned crew the next time the job, its crew or its dates change (update_many on auto entries). The auto flag stays true after a manual edit. Consider setting auto:false or a crew_overridden flag when PUT /schedule edits an auto entry."},
+      {"endpoint": "POST /api/jobs", "issue": "start_date, completion_date and work_dates are not validated as YYYY-MM-DD on job create/update (only /jobs/{id}/dates validates), so bad strings would become schedule entry dates."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "ScheduleModal", "issue": "The conflict check sends every selected employee, not only newly added ones. Re-opening an entry that already has a proceeded conflict and saving with no changes shows the conflict dialog again. CrewModal correctly checks only added employees.", "selector": "[data-testid='schedule-save-btn']", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Dashboard", "issues": ["With the Equipment tile removed, the second row of stat tiles has 3 tiles and an empty 4th slot on desktop (7 tiles in a 4-column grid)."]},
+      {"screen": "Schedule weekly strip", "issues": ["Day cells that have entries show an extra dot row, so their day numbers sit higher than on empty days (misaligned baseline). Reserve a fixed-height dot row."]},
+      {"screen": "Schedule daily/weekly", "issues": ["In Daily view the date label appears twice (range title and day-detail heading)."]},
+      {"screen": "Schedule month", "issues": ["Stepping months with prev/next selects day 1, so the 1st is always highlighted rather than today or the previously selected day."]},
+      {"screen": "Job work dates and ScheduleModal", "issues": ["Use native browser <input type=date> pickers instead of the shadcn Calendar component."]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/test_iter20_scheduling.py", "/app/test_reports/pytest/pytest_iter20.xml"],
+  "action_items": [
+    "Delete a job's schedule entries when the job is deleted (prevents orphan 'Job' entries and false conflicts)",
+    "Make PUT /api/notification-prefs merge partial updates instead of resetting omitted keys to true",
+    "Format clock-in/out notification times in local/company time instead of UTC",
+    "ScheduleModal: check conflicts only for newly added employees (match CrewModal)",
+    "Optional: keep manual crew edits on auto schedule entries; validate job date fields; dashboard empty tile slot; week strip alignment"
+  ],
+  "critical_code_review_comments": [
+    "crud_router delete_item has no cascade for jobs (schedule entries, and possibly timecards/photos references)",
+    "schedule_conflicts queries db.jobs without a company_id filter (ids come from company-scoped rows, so low risk, but add it for defense in depth)",
+    "job_display turns 'scheduled' into 'delayed' when completion_date is past. If a user picks 'Scheduled' on such a job, the select snaps back to Delayed with no explanation.",
+    "_clock_notify looks up the job without a company_id filter"
+  ],
+  "updated_files": ["/app/backend/tests/test_iter20_scheduling.py"],
+  "success_rate": {"backend": "88% (15/17)", "frontend": "100% of requested flows"},
+  "seed_data_creation": "None kept. All TEST_ jobs, employees, the employee team user and schedule entries were deleted by id, including 17 orphan schedule entries my first run left via job delete. The owner's notification prefs were restored to all-true (their original state).",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Run: cd /app/backend && REACT_APP_BACKEND_URL=<url> pytest tests/test_iter20_scheduling.py. Two tests deliberately expose the job-delete cascade bug and the partial-prefs bug. The fixture deletes schedule entries for its jobs before deleting the jobs. Jobs modal testids: jobs-add-btn, field-<key>, jobs-save-btn (not jobs-modal-save-btn). The server clock is Nov 2026; use Dec 2026+ dates.",
+  "rca of the issue": "Orphan schedule entries: the generic crud_router.delete_item only deletes the job document. sync_job_schedule is never called on delete, so db.schedule keeps the rows. GET /schedule falls back to 'Job' for the missing job, and /schedule/conflicts still matches them."
+}

@@ -9,6 +9,7 @@ import csv
 import uuid
 import logging
 import asyncio
+from zoneinfo import ZoneInfo
 import secrets
 from datetime import datetime, timezone, timedelta
 from typing import List, Optional, Annotated
@@ -56,7 +57,7 @@ EMERGENT_KEY = os.environ.get("EMERGENT_LLM_KEY")
 APP_NAME = "fieldforge"
 storage_key = None
 
-TRIAL_DAYS = int(os.environ.get("TRIAL_DAYS", "15"))
+TRIAL_DAYS = 15
 TRIAL_PLAN = "medium"
 ARCHIVE_GRACE_DAYS = int(os.environ.get("ARCHIVE_GRACE_DAYS", "5"))
 
@@ -329,26 +330,71 @@ async def scope(user):
     return user["company_id"]
 
 
+JOB_STATUSES = ("scheduled", "in_progress", "completed", "delayed", "rescheduled")
+LEGACY_STATUS = {"active": "scheduled", "on_time": "scheduled", "late": "delayed", "behind": "delayed"}
+
+
 class Job(BaseModel):
     name: str = ""
     address: str = ""
     customer_name: str = ""
-    status: str = "active"  # active (auto on_time/late), completed
+    status: str = "scheduled"  # scheduled, in_progress, completed, delayed, rescheduled
     start_date: Optional[str] = None
     completion_date: Optional[str] = None
+    work_dates: List[str] = []  # extra non-consecutive work days
     description: str = ""
     assigned_employees: List[str] = []
     assigned_vehicles: List[str] = []
     assigned_equipment: List[str] = []
 
 
+def norm_status(s: Optional[str]) -> str:
+    s = LEGACY_STATUS.get(s or "", s or "scheduled")
+    return s if s in JOB_STATUSES else "scheduled"
+
+
 def job_display(doc: dict) -> dict:
     num = doc.get("job_number")
     doc["name"] = f"#{num} – {doc.get('customer_name') or 'Customer'}" if num else doc.get("name", "")
-    if doc.get("status") != "completed":
-        cd = doc.get("completion_date")
-        doc["status"] = "late" if cd and cd < datetime.now(timezone.utc).strftime("%Y-%m-%d") else "on_time"
+    doc["status"] = norm_status(doc.get("status"))
+    cd = doc.get("completion_date")
+    doc["is_overdue"] = bool(cd and cd < datetime.now(timezone.utc).strftime("%Y-%m-%d") and doc["status"] != "completed")
+    if doc["is_overdue"] and doc["status"] == "scheduled":
+        doc["status"] = "delayed"
+    doc.setdefault("work_dates", [])
     return doc
+
+
+def job_dates(job: dict) -> List[str]:
+    out = []
+    for d in [job.get("start_date"), *(job.get("work_dates") or [])]:
+        if d and d not in out:
+            out.append(d)
+    return sorted(out)
+
+
+async def sync_job_schedule(job: dict, user: Optional[dict] = None):
+    """Keep auto-created schedule entries in step with the job's dates/crew (no duplicates, manual entries kept)."""
+    cid, jid = job["company_id"], str(job["_id"])
+    wanted = set(job_dates(job))
+    existing = await db.schedule.find({"company_id": cid, "job_id": jid}).to_list(500)
+    have = {e["date"] for e in existing}
+    for e in existing:
+        if e.get("auto") and e["date"] not in wanted:
+            await db.schedule.delete_one({"_id": e["_id"]})
+    for d in wanted - have:
+        await db.schedule.insert_one({"company_id": cid, "date": d, "job_id": jid, "auto": True, "notes": "",
+                                      "employee_ids": job.get("assigned_employees", []), "vehicle_ids": job.get("assigned_vehicles", []),
+                                      "equipment_ids": job.get("assigned_equipment", []), "updated_at": now_iso(),
+                                      "updated_by": (user or {}).get("name", "System")})
+    await db.schedule.update_many({"company_id": cid, "job_id": jid, "auto": True, "date": {"$in": list(wanted)}},
+                                  {"$set": {"employee_ids": job.get("assigned_employees", []), "vehicle_ids": job.get("assigned_vehicles", []),
+                                            "equipment_ids": job.get("assigned_equipment", [])}})
+
+
+async def notify(company_id: str, ntype: str, message: str, **extra):
+    await db.notifications.insert_one({"company_id": company_id, "type": ntype, "message": message, "read": False,
+                                       "created_at": now_iso(), **extra})
 
 
 async def next_job_number(cid: str) -> int:
@@ -475,10 +521,11 @@ def crud_router(name: str, collection: str, Model, create_roles=("owner", "forem
         if collection == "jobs":
             doc["job_number"] = await next_job_number(user["company_id"])
             doc["name"] = f"#{doc['job_number']} – {doc.get('customer_name') or 'Customer'}"
-            if doc.get("status") != "completed":
-                doc["status"] = "active"
+            doc["status"] = norm_status(doc.get("status"))
         res = await db[collection].insert_one(doc)
         doc["_id"] = res.inserted_id
+        if collection == "jobs":
+            await sync_job_schedule(doc, user)
         await log_audit(user["company_id"], user, f"Created {label}: {doc.get('name', '')}".strip())
         return post(clean(doc))
 
@@ -492,18 +539,24 @@ def crud_router(name: str, collection: str, Model, create_roles=("owner", "forem
     @r.put(f"/{name}/{{item_id}}")
     async def update_item(item_id: str, payload: Model, user: dict = Depends(require_role(*create_roles))):
         doc = payload.model_dump(exclude_unset=True)
+        before = None
         if collection == "jobs":
             doc.pop("name", None)
-            if doc.get("status") not in (None, "completed"):
-                doc["status"] = "active"
-            if "customer_name" in doc:
-                cur = await db[collection].find_one({"_id": _oid(item_id), "company_id": user["company_id"]}, {"job_number": 1})
-                if cur and cur.get("job_number"):
-                    doc["name"] = f"#{cur['job_number']} – {doc['customer_name'] or 'Customer'}"
+            if "status" in doc:
+                doc["status"] = norm_status(doc["status"])
+            before = await db[collection].find_one({"_id": _oid(item_id), "company_id": user["company_id"]})
+            if before and before.get("job_number") and "customer_name" in doc:
+                doc["name"] = f"#{before['job_number']} – {doc['customer_name'] or 'Customer'}"
         await db[collection].update_one({"_id": _oid(item_id), "company_id": user["company_id"]}, {"$set": doc})
         item = await db[collection].find_one({"_id": _oid(item_id), "company_id": user["company_id"]})
         if not item:
             raise HTTPException(404, "Not found")
+        if collection == "jobs" and before:
+            await sync_job_schedule(item, user)
+            if job_dates(before) != job_dates(item):
+                await notify(user["company_id"], "schedule_change", f"Schedule changed for {item['name']}: now {', '.join(job_dates(item)) or 'no dates'}", job_id=item_id)
+            if norm_status(before.get("status")) != item.get("status"):
+                await notify(user["company_id"], "schedule_change", f"{item['name']} marked {item['status'].replace('_', ' ')}", job_id=item_id)
         await log_audit(user["company_id"], user, f"Updated {label}: {item.get('name', '')}".strip())
         return post(clean(item))
 
@@ -511,6 +564,8 @@ def crud_router(name: str, collection: str, Model, create_roles=("owner", "forem
     async def delete_item(item_id: str, user: dict = Depends(require_role("owner"))):
         gone = await db[collection].find_one({"_id": _oid(item_id), "company_id": user["company_id"]})
         await db[collection].delete_one({"_id": _oid(item_id), "company_id": user["company_id"]})
+        if collection == "jobs":
+            await db.schedule.delete_many({"company_id": user["company_id"], "job_id": item_id})
         await log_audit(user["company_id"], user, f"Deleted {label}: {gone.get('name', '') if gone else ''}".strip())
         return {"status": "deleted"}
 
@@ -563,10 +618,57 @@ async def assign_crew(job_id: str, req: CrewAssign, user: dict = Depends(require
     if new_emps:
         names = await db.employees.find({"_id": {"$in": [ObjectId(i) for i in new_emps]}}, {"name": 1}).to_list(100)
         for n in names:
-            await db.notifications.insert_one({"company_id": cid, "message": f"{n['name']} assigned to job: {job['name']}",
-                                               "type": "assignment", "job_id": job_id, "employee_id": str(n["_id"]), "read": False, "created_at": now_iso()})
+            await notify(cid, "assignment", f"{n['name']} assigned to job: {job['name']}", job_id=job_id, employee_id=str(n["_id"]))
+    job = await db.jobs.find_one({"_id": job["_id"]})
+    await sync_job_schedule(job, user)
     await log_audit(cid, user, f"Updated crew on job: {job['name']}")
-    return clean(await db.jobs.find_one({"_id": job["_id"]}))
+    return job_display(clean(job))
+
+
+class JobDates(BaseModel):
+    work_dates: List[str]
+
+
+@api.put("/jobs/{job_id}/dates")
+async def set_job_dates(job_id: str, req: JobDates, user: dict = Depends(require_role("owner", "foreman"))):
+    cid = user["company_id"]
+    job = await db.jobs.find_one({"_id": _oid(job_id), "company_id": cid})
+    if not job:
+        raise HTTPException(404, "Job not found")
+    dates = sorted({_valid_date(d) for d in req.work_dates if d and d != job.get("start_date")})
+    await db.jobs.update_one({"_id": job["_id"]}, {"$set": {"work_dates": dates}})
+    job = await db.jobs.find_one({"_id": job["_id"]})
+    await sync_job_schedule(job, user)
+    await notify(cid, "schedule_change", f"Work dates updated for {job['name']}: {', '.join(job_dates(job))}", job_id=job_id)
+    await log_audit(cid, user, f"Updated work dates on job: {job['name']}")
+    return job_display(clean(job))
+
+
+class ConflictCheck(BaseModel):
+    dates: List[str]
+    employee_ids: List[str] = []
+    exclude_job_id: Optional[str] = None
+
+
+@api.post("/schedule/conflicts")
+async def schedule_conflicts(req: ConflictCheck, user: dict = Depends(require_role("owner", "foreman"))):
+    cid = user["company_id"]
+    dates = [_valid_date(d) for d in req.dates if d]
+    if not dates or not req.employee_ids:
+        return []
+    q = {"company_id": cid, "date": {"$in": dates}, "employee_ids": {"$in": req.employee_ids}}
+    if req.exclude_job_id:
+        q["job_id"] = {"$ne": req.exclude_job_id}
+    rows = await db.schedule.find(q).to_list(1000)
+    job_ids = {r["job_id"] for r in rows}
+    jobs = {str(j["_id"]): job_display(clean(j)) for j in await db.jobs.find({"_id": {"$in": [ObjectId(i) for i in job_ids if ObjectId.is_valid(i)]}}).to_list(500)}
+    emps = {str(e["_id"]): e["name"] for e in await db.employees.find({"_id": {"$in": [ObjectId(i) for i in req.employee_ids if ObjectId.is_valid(i)]}}, {"name": 1}).to_list(500)}
+    out = []
+    for r in rows:
+        for eid in set(r.get("employee_ids", [])) & set(req.employee_ids):
+            out.append({"employee_id": eid, "employee_name": emps.get(eid, "Employee"), "date": r["date"],
+                        "job_id": r["job_id"], "job_name": jobs.get(r["job_id"], {}).get("name", "Job")})
+    return sorted(out, key=lambda c: (c["date"], c["employee_name"]))
 
 
 # ---------- Daily schedule ----------
@@ -584,7 +686,13 @@ class ScheduleEntry(BaseModel):
 async def list_schedule(start: str = Query(...), end: str = Query(...), user: dict = Depends(require_not_archived)):
     cid = user["company_id"]
     rows = await db.schedule.find({"company_id": cid, "date": {"$gte": _valid_date(start), "$lte": _valid_date(end)}}).sort("date", 1).to_list(2000)
-    return [clean(r) for r in rows]
+    jobs = {str(j["_id"]): job_display(clean(j)) for j in await db.jobs.find({"_id": {"$in": [ObjectId(r["job_id"]) for r in rows if ObjectId.is_valid(r["job_id"])]}}).to_list(2000)}
+    out = []
+    for r in rows:
+        j = jobs.get(r["job_id"], {})
+        out.append({**clean(r), "job_name": j.get("name", "Job"), "customer_name": j.get("customer_name", ""), "address": j.get("address", ""),
+                    "job_status": j.get("status", "scheduled"), "start_date": j.get("start_date")})
+    return out
 
 
 @api.put("/schedule")
@@ -610,7 +718,8 @@ async def upsert_schedule(req: ScheduleEntry, user: dict = Depends(require_role(
         await db.schedule.update_one({"_id": existing["_id"]}, {"$set": doc})
         key = {"_id": existing["_id"]}
     else:
-        await db.schedule.update_one(key, {"$set": doc}, upsert=True)
+        await db.schedule.update_one(key, {"$set": doc, "$setOnInsert": {"auto": False}}, upsert=True)
+    await notify(cid, "schedule_change", f"{job['name']} scheduled for {date}", job_id=req.job_id)
     await log_audit(cid, user, f"Scheduled {job['name']} for {date}")
     return clean(await db.schedule.find_one(key))
 
@@ -1043,10 +1152,29 @@ async def run_purge_archived() -> int:
     return removed
 
 
+async def run_missed_clock_ins():
+    """Flag employees scheduled today who have no clock-in yet (once per employee per day)."""
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    entries = await db.schedule.find({"date": today, "employee_ids.0": {"$exists": True}}).to_list(5000)
+    for e in entries:
+        for eid in e.get("employee_ids", []):
+            key = f"missed:{eid}:{today}"
+            if await db.notifications.find_one({"dedupe_key": key}):
+                continue
+            if await db.timecards.find_one({"employee_id": eid, "company_id": e["company_id"], "clock_in": {"$regex": f"^{today}"}}):
+                continue
+            emp = await db.employees.find_one({"_id": ObjectId(eid)}, {"name": 1}) if ObjectId.is_valid(eid) else None
+            job = await db.jobs.find_one({"_id": ObjectId(e["job_id"])}) if ObjectId.is_valid(e["job_id"]) else None
+            jname = job_display(job)["name"] if job else "today's job"
+            await notify(e["company_id"], "missed_clock_in", f"{(emp or {}).get('name', 'Employee')} has not clocked in for {jname} ({today})",
+                         employee_id=eid, job_id=e["job_id"], dedupe_key=key)
+
+
 async def run_trial_jobs():
     await run_trial_reminders()
     await run_trial_ended()
     await run_purge_archived()
+    await run_missed_clock_ins()
 
 
 @api.post("/cron/trial-reminders")
@@ -1104,8 +1232,24 @@ async def clock_in(req: TimeCardAction, user: dict = Depends(require_not_archive
     res = await db.timecards.insert_one(doc)
     doc["_id"] = res.inserted_id
     emp = await db.employees.find_one({"_id": ObjectId(req.employee_id)}) if ObjectId.is_valid(req.employee_id) else None
+    await _clock_notify(user["company_id"], "clock_in", emp, req.job_id, doc["clock_in"])
     await log_audit(user["company_id"], user, f"Clocked in {emp.get('name') if emp else 'employee'}")
     return clean(doc)
+
+
+async def _clock_notify(cid: str, ntype: str, emp: Optional[dict], job_id: Optional[str], at_iso: str):
+    job = await db.jobs.find_one({"_id": ObjectId(job_id)}, {"name": 1, "job_number": 1, "customer_name": 1, "address": 1}) if job_id and ObjectId.is_valid(job_id) else None
+    job_name = job_display(job)["name"] if job else "no job selected"
+    t = datetime.fromisoformat(at_iso)
+    tzname = os.environ.get("COMPANY_TIMEZONE", "America/New_York")
+    try:
+        t = t.astimezone(ZoneInfo(tzname))
+    except Exception:
+        pass
+    when = f"{t.strftime('%b %d, %Y')} at {t.strftime('%I:%M %p').lstrip('0')} {t.tzname() or ''}".strip()
+    verb = "clocked in" if ntype == "clock_in" else "clocked out"
+    await notify(cid, ntype, f"{(emp or {}).get('name', 'Employee')} {verb} — {job_name} — {when}",
+                 employee_id=str(emp["_id"]) if emp else None, job_id=job_id, at=at_iso)
 
 
 @api.post("/timecards/clock-out")
@@ -1119,6 +1263,7 @@ async def clock_out(req: TimeCardAction, user: dict = Depends(require_not_archiv
     await db.timecards.update_one({"_id": tc["_id"]}, {"$set": {"clock_out": out.isoformat(), "hours": hours}})
     tc = await db.timecards.find_one({"_id": tc["_id"]})
     emp = await db.employees.find_one({"_id": ObjectId(req.employee_id)}) if ObjectId.is_valid(req.employee_id) else None
+    await _clock_notify(user["company_id"], "clock_out", emp, tc.get("job_id"), tc["clock_out"])
     await log_audit(user["company_id"], user, f"Clocked out {emp.get('name') if emp else 'employee'} ({hours}h)")
     return clean(tc)
 
@@ -1196,12 +1341,12 @@ async def _data_entry_summary(cid: str) -> dict:
 @api.get("/dashboard")
 async def dashboard(user: dict = Depends(require_not_archived)):
     cid = user["company_id"]
-    active_jobs = [job_display(clean(j)) for j in await db.jobs.find({"company_id": cid, "status": "active"}).sort("_id", -1).to_list(6)]
+    active_jobs = [job_display(clean(j)) for j in await db.jobs.find({"company_id": cid, "status": {"$nin": ["completed"]}}).sort("_id", -1).to_list(6)]
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     active_tcs = await db.timecards.find({"company_id": cid, "clock_out": None}, {"employee_id": 1}).to_list(1000)
     return {
-        "active_jobs": await _count("jobs", cid, status="active"),
-        "jobs_behind": await db.jobs.count_documents({"company_id": cid, "status": "active", "completion_date": {"$lt": today, "$ne": None}}),
+        "active_jobs": await db.jobs.count_documents({"company_id": cid, "status": {"$nin": ["completed"]}}),
+        "jobs_behind": await db.jobs.count_documents({"company_id": cid, "status": {"$nin": ["completed"]}, "$or": [{"status": "delayed"}, {"completion_date": {"$lt": today, "$ne": None}}]}),
         "completed_jobs": await _count("jobs", cid, status="completed"),
         "clocked_in": len(active_tcs),
         "clocked_in_ids": [t["employee_id"] for t in active_tcs],
@@ -1588,9 +1733,45 @@ async def integration_download_file(path: str):
     return _serve_file(record, path)
 
 
+NOTIF_PREF_KEYS = ("clock_in", "clock_out", "schedule_change", "assignment", "missed_clock_in")
+MANAGER_ONLY_TYPES = {"clock_in", "clock_out", "missed_clock_in"}
+
+
+def user_prefs(user: dict) -> dict:
+    return {k: bool((user.get("notification_prefs") or {}).get(k, True)) for k in NOTIF_PREF_KEYS}
+
+
+class NotifPrefs(BaseModel):
+    clock_in: Optional[bool] = None
+    clock_out: Optional[bool] = None
+    schedule_change: Optional[bool] = None
+    assignment: Optional[bool] = None
+    missed_clock_in: Optional[bool] = None
+
+
+@api.get("/notification-prefs")
+async def get_notification_prefs(user: dict = Depends(require_not_archived)):
+    return user_prefs(user)
+
+
+@api.put("/notification-prefs")
+async def set_notification_prefs(req: NotifPrefs, user: dict = Depends(require_role("owner", "foreman"))):
+    merged = {**user_prefs(user), **{k: v for k, v in req.model_dump().items() if v is not None}}
+    await db.users.update_one({"_id": user["_id"]}, {"$set": {"notification_prefs": merged}})
+    await log_audit(user["company_id"], user, "Updated notification preferences")
+    return merged
+
+
 @api.get("/notifications")
 async def list_notifications(user: dict = Depends(require_not_archived)):
-    items = await db.notifications.find({"company_id": user["company_id"]}).sort("_id", -1).limit(50).to_list(50)
+    prefs = user_prefs(user)
+    off = [k for k, v in prefs.items() if not v]
+    if user.get("role") == "employee":
+        off += list(MANAGER_ONLY_TYPES)
+    q = {"company_id": user["company_id"]}
+    if off:
+        q["type"] = {"$nin": list(set(off))}
+    items = await db.notifications.find(q).sort("_id", -1).limit(50).to_list(50)
     return [clean(i) for i in items]
 
 

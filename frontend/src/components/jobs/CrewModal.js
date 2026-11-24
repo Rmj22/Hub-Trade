@@ -2,6 +2,12 @@ import { useEffect, useState } from "react";
 import { X, Users, Truck, Wrench } from "lucide-react";
 import { api, errMsg } from "../../lib/api";
 import { toast } from "sonner";
+import { ConflictDialog, checkConflicts } from "./JobExtras";
+import { CrewAvailability, useWeekEntries } from "../schedule/CrewAvailability";
+import { ChevronLeft, ChevronRight } from "lucide-react";
+
+const startOfWeek = (d) => { const x = new Date(d); x.setHours(12, 0, 0, 0); x.setDate(x.getDate() - ((x.getDay() + 6) % 7)); return x; };
+const addDays = (d, n) => { const x = new Date(d); x.setDate(x.getDate() + n); return x; };
 
 const GROUPS = [
   { key: "assigned_employees", label: "Crew", icon: Users, src: "employees" },
@@ -44,16 +50,32 @@ export function CrewModal({ job, onClose, onSaved }) {
     assigned_equipment: job.assigned_equipment || [],
   });
   const [saving, setSaving] = useState(false);
+  const [conflicts, setConflicts] = useState(null);
+  const [showAvail, setShowAvail] = useState(false);
+  const [weekStart, setWeekStart] = useState(() => startOfWeek(job.start_date ? new Date(`${job.start_date}T12:00:00`) : new Date()));
+  const days = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
+  const weekEntries = useWeekEntries(days);
+  const jobDates = [job.start_date, ...(job.work_dates || [])].filter(Boolean);
 
   const toggle = (key, id) => setSel((s) => ({ ...s, [key]: s[key].includes(id) ? s[key].filter((x) => x !== id) : [...s[key], id] }));
 
-  const save = async () => {
+  const commit = async () => {
     setSaving(true);
     try {
       const { data } = await api.put(`/jobs/${job.id}/crew`, sel);
       toast.success("Crew updated"); onSaved(data); onClose();
     } catch (e) { toast.error(errMsg(e)); }
     setSaving(false);
+  };
+
+  const save = async () => {
+    const dates = [job.start_date, ...(job.work_dates || [])].filter(Boolean);
+    const added = sel.assigned_employees.filter((id) => !(job.assigned_employees || []).includes(id));
+    try {
+      const found = await checkConflicts(dates, added, job.id);
+      if (found.length) { setConflicts(found); return; }
+    } catch (e) { toast.error(errMsg(e)); return; }
+    commit();
   };
 
   return (
@@ -64,7 +86,21 @@ export function CrewModal({ job, onClose, onSaved }) {
           <h2 className="font-head font-bold text-xl">Assign crew</h2>
           <button onClick={onClose} data-testid="crew-close-btn"><X className="w-5 h-5" /></button>
         </div>
-        <div className="text-sm text-muted-foreground mb-6">{job.name}{job.customer_name ? ` · ${job.customer_name}` : ""}</div>
+        <div className="text-sm text-muted-foreground mb-4">{job.name}{job.customer_name ? ` · ${job.customer_name}` : ""}</div>
+        <div className="mb-5">
+          <button type="button" onClick={() => setShowAvail((s) => !s)} data-testid="crew-availability-toggle" className="text-sm font-semibold text-primary py-1">{showAvail ? "Hide" : "Show"} crew availability</button>
+          {showAvail && (
+            <div className="mt-2" data-testid="crew-availability-panel">
+              <div className="flex items-center justify-between mb-2 text-xs text-muted-foreground">
+                <button type="button" onClick={() => setWeekStart(addDays(weekStart, -7))} data-testid="availability-prev" className="p-1.5 rounded border border-border"><ChevronLeft className="w-3.5 h-3.5" /></button>
+                <span>Week of {weekStart.toLocaleDateString(undefined, { month: "short", day: "numeric" })} · tap a name to add</span>
+                <button type="button" onClick={() => setWeekStart(addDays(weekStart, 7))} data-testid="availability-next" className="p-1.5 rounded border border-border"><ChevronRight className="w-3.5 h-3.5" /></button>
+              </div>
+              <CrewAvailability days={days} employees={res.employees} entries={weekEntries.filter((e) => e.job_id !== job.id)} highlightDates={jobDates}
+                selected={sel.assigned_employees} onPick={(id) => toggle("assigned_employees", id)} />
+            </div>
+          )}
+        </div>
         <div className="space-y-6">
           {GROUPS.map((g) => (
             <div key={g.key}>
@@ -78,6 +114,7 @@ export function CrewModal({ job, onClose, onSaved }) {
           <button onClick={onClose} className="px-5 py-2.5 rounded-md border border-border hover:bg-muted">Cancel</button>
         </div>
       </div>
+      {conflicts && <ConflictDialog conflicts={conflicts} onCancel={() => setConflicts(null)} onProceed={() => { setConflicts(null); commit(); }} />}
     </div>
   );
 }
